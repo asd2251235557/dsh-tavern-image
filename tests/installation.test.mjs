@@ -144,8 +144,8 @@ function makeZip(files) {
 }
 
 const minimalManifest = JSON.stringify({
-  name: 'dsh-tavern-comfy',
-  version: '2.5.1',
+  name: 'dsh-tavern-image',
+  version: '2.9.1',
   main: 'lib/index.js',
   dsh: { bundle: { patch: './cordis.patch.yml' }, client: { platform: 'web' } },
 })
@@ -156,7 +156,7 @@ testWithTimeout('installer recognizes nested ZIPs, copies only package files, an
 
   const sandbox = await makeSandbox(t)
   const packageArchive = join(sandbox.directory, 'nested-source.zip')
-  const patch = '- insert:\n    - id: dsh-tavern-image\n      name: dsh-tavern-comfy\n'
+  const patch = '- insert:\n    - id: dsh-tavern-image\n      name: dsh-tavern-image\n'
   const files = [
     ['one/two/dsh-tavern-image-master/package.json', minimalManifest],
     ['one/two/dsh-tavern-image-master/lib/index.js', 'export function apply() {}\n'],
@@ -170,20 +170,22 @@ testWithTimeout('installer recognizes nested ZIPs, copies only package files, an
   ]
   await writeFile(packageArchive, makeZip(files))
   const result = await runPowerShell(await installArgs(sandbox, ['-SourceArchive', packageArchive]), { env: sandbox.env })
-  assert.match(result.stdout, /dsh-tavern-comfy/)
+  assert.match(result.stdout, /dsh-tavern-image/)
   assert.match(result.stdout, /Done in/)
 
   const installed = JSON.parse(await readFile(join(sandbox.sourceTarget, 'package.json'), 'utf8'))
-  assert.equal(installed.name, 'dsh-tavern-comfy')
+  assert.equal(installed.name, 'dsh-tavern-image')
   assert.equal(await readFile(join(sandbox.sourceTarget, 'lib', 'index.js'), 'utf8'), 'export function apply() {}\n')
   for (const privateFile of ['config.json', 'worldbook.json', 'workflows/user.json', 'tests/secret.test.mjs']) {
     await assert.rejects(stat(join(sandbox.sourceTarget, privateFile)))
   }
 
   const profile = JSON.parse(await readFile(join(sandbox.profile, 'package.json'), 'utf8'))
-  assert.match(profile.dependencies['dsh-tavern-comfy'], /link:/)
-  assert.ok(profile.dsh.profile.bundles.includes('dsh-tavern-comfy'))
-  const pluginLink = join(sandbox.profile, 'node_modules', 'dsh-tavern-comfy')
+  assert.match(profile.dependencies['dsh-tavern-image'], /link:/)
+  assert.ok(profile.dsh.profile.bundles.includes('dsh-tavern-image'))
+  assert.ok(!Object.hasOwn(profile.dependencies, 'dsh-tavern-comfy'))
+  assert.ok(!profile.dsh.profile.bundles.includes('dsh-tavern-comfy'))
+  const pluginLink = join(sandbox.profile, 'node_modules', 'dsh-tavern-image')
   assert.ok((await lstat(pluginLink)).isSymbolicLink())
   assert.equal(await realpath(pluginLink), await realpath(sandbox.sourceTarget))
   assert.match(result.stdout, /--ignore-scripts|ignore-scripts|Done in/)
@@ -195,7 +197,7 @@ testWithTimeout('installer rejects ZIP-slip paths before creating the plugin tar
 
   const sandbox = await makeSandbox(t)
   const malicious = join(sandbox.directory, 'unsafe.zip')
-  const patch = '- insert:\n    - id: dsh-tavern-image\n      name: dsh-tavern-comfy\n'
+  const patch = '- insert:\n    - id: dsh-tavern-image\n      name: dsh-tavern-image\n'
   await writeFile(malicious, makeZip([
     ['repo/package.json', minimalManifest],
     ['repo/lib/index.js', 'export function apply() {}'],
@@ -221,6 +223,32 @@ testWithTimeout('installer leaves an existing plugin directory and profile untou
   await assert.rejects(runPowerShell(await installArgs(sandbox, ['-SourceDirectory', root]), { env: sandbox.env }))
   assert.equal(await readFile(privatePath, 'utf8'), '{"keep":"private"}')
   assert.equal(await readFile(join(sandbox.profile, 'package.json'), 'utf8'), beforeProfile)
+})
+
+testWithTimeout('installer detects legacy package and bundle registrations without changing the profile', async t => {
+  if (process.platform !== 'win32') return t.skip('PowerShell installation tests run on Windows')
+
+  for (const legacyRegistration of [
+    { dependencies: { 'dsh-tavern-comfy': 'link:../profile-data/sim/data/tools/dsh-tavern-image' } },
+    { bundles: ['@deepseek-ai/dsh-base', 'dsh-tavern-comfy'] },
+  ]) {
+    const sandbox = await makeSandbox(t)
+    const packagePath = join(sandbox.profile, 'package.json')
+    const profile = {
+      name: 'dsh-profile-sim',
+      private: true,
+      dependencies: legacyRegistration.dependencies ?? {},
+      dsh: { profile: { bundles: legacyRegistration.bundles ?? ['@deepseek-ai/dsh-base'] } },
+    }
+    const before = JSON.stringify(profile, null, 2)
+    await writeFile(packagePath, before)
+    await assert.rejects(
+      runPowerShell([installer, '-Profile', 'sim', '-DshHome', sandbox.dshHome, '-NoRegister', '-SourceDirectory', root], { env: sandbox.env }),
+      error => /dsh-tavern-comfy/.test(error.stderr || '') && /dsh plugin --profile sim remove dsh-tavern-comfy/.test(error.stderr || '')
+    )
+    assert.equal(await readFile(packagePath, 'utf8'), before)
+    await assert.rejects(stat(sandbox.sourceTarget))
+  }
 })
 
 testWithTimeout('portable root/profile paths work with NoRegister without changing another profile or its stage directory', async t => {
@@ -321,6 +349,8 @@ testWithTimeout('local install bundle contains a source ZIP with only the declar
   const installedEntries = await readdir(installSandbox.sourceTarget)
   assert.ok(installedEntries.includes('client.js'))
   assert.ok(installedEntries.includes('lib'))
+  assert.ok(installedEntries.includes('世界书-角色与服装库.json'), 'the outfit library seed is included in the actual source ZIP')
+  assert.ok(!installedEntries.includes('worldbook-outfits.json'), 'user outfit data is excluded')
   for (const excluded of ['tests', 'config.json', 'definitions.json', 'worldbook.json', 'cache', 'jobs-store.json']) {
     assert.ok(!installedEntries.includes(excluded), `package output must exclude ${excluded}`)
   }
@@ -347,8 +377,8 @@ testWithTimeout('server download ZIP buffer installs through the official DSH CL
   assert.match(result.stdout, /SHA-256/)
   assert.match(result.stdout, /Done in/)
   const profile = JSON.parse(await readFile(join(sandbox.profile, 'package.json'), 'utf8'))
-  assert.match(profile.dependencies['dsh-tavern-comfy'], /^link:/)
-  assert.ok(profile.dsh.profile.bundles.includes('dsh-tavern-comfy'))
-  assert.equal(JSON.parse(await readFile(join(sandbox.sourceTarget, 'package.json'), 'utf8')).name, 'dsh-tavern-comfy')
+  assert.match(profile.dependencies['dsh-tavern-image'], /^link:/)
+  assert.ok(profile.dsh.profile.bundles.includes('dsh-tavern-image'))
+  assert.equal(JSON.parse(await readFile(join(sandbox.sourceTarget, 'package.json'), 'utf8')).name, 'dsh-tavern-image')
   await assert.rejects(stat(join(sandbox.sourceTarget, 'config.json')))
 })

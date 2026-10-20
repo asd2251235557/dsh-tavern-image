@@ -20,7 +20,7 @@
 
 ### Windows 安装
 
-安装器默认使用 `%USERPROFILE%\.dsh` 下的 `tavern` Profile；可通过 `-Profile` 指定另一个**已经存在**的 Profile。安装器只安装插件源码，不运行仓库脚本；它调用 DSH 官方 CLI 的 `plugin add`，附带 `--ignore-scripts`，由 DSH 将依赖、`node_modules` 链接和 bundle 一起登记。若 `tools/dsh-tavern-image` 或 Profile 中已有同名依赖，安装器会停止，不覆盖已有内容；更新已安装插件请用插件自己的更新页。
+安装器默认使用 `%USERPROFILE%\.dsh` 下的 `tavern` Profile；可通过 `-Profile` 指定另一个**已经存在**的 Profile。安装器只安装插件源码，不运行仓库脚本；它调用 DSH 官方 CLI 的 `plugin add`，附带 `--ignore-scripts`，由 DSH 将 `dsh-tavern-image` 依赖、`node_modules` 链接和 bundle 一起登记。若目标目录或 Profile 中已有 canonical 注册，或 Profile 仍登记旧包名 `dsh-tavern-comfy`，安装器会停止，不覆盖已有内容或制造双重加载；更新已安装插件请用插件自己的更新页，旧注册迁移见下文。
 
 已发布的离线安装包可从 [GitHub 发布页](https://github.com/weixinlll/dsh-tavern-image/releases)下载。解压后双击 `Install-DshTavernImage.cmd`，安装器直接使用包内源码，不必再从 GitHub 下载。发布页也提供独立源码包和 SHA-256 校验文件。请核对发布版本；需要最新的 2.5.3 修复时，可用下方的源码 ZIP 安装方式。
 
@@ -75,15 +75,48 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\dsh-tavern-image-
 
 ### 旧版目录迁移
 
-已有 `dsh-tavern-comfy` 安装不要再克隆一份。**1.2.1 及更新版本**先在 **设置 → 本地生图 → 插件更新**检查并安装。确认 `tools` 中没有另一份 `dsh-tavern-image` 后，完整退出 DSH（包括托盘进程），将旧插件文件夹改名为 `dsh-tavern-image`。目录改名不会更新 Profile 的依赖路径，必须重新运行 DSH 官方包管理器的 link 操作：
+已有旧包名 `dsh-tavern-comfy` 的安装不要再并排装一份。先完整退出 DSH（包括托盘进程）并备份整个插件目录。若旧目录仍叫 `dsh-tavern-comfy`，仅在确认 `tools` 下没有另一份 `dsh-tavern-image` 后改名为 `dsh-tavern-image`；不要覆盖或合并两个目录。Profile 的旧依赖由 DSH 官方 CLI 移除，不能手工编辑 bundle 列表：
 
 ~~~powershell
-$env:PATH = "$env:USERPROFILE\.dsh\runtime;$env:PATH"
-$dshCli = Join-Path $env:LOCALAPPDATA 'Programs\DSH Desktop\resources\app\node_modules\@deepseek-ai\dsh\lib\bin.js'
-node $dshCli plugin --profile tavern add "link:$env:USERPROFILE/.dsh/profile-data/tavern/data/tools/dsh-tavern-image" --ignore-scripts
+$plugin = Join-Path $env:USERPROFILE '.dsh\profile-data\tavern\data\tools\dsh-tavern-image'
+$source = 'C:\path\to\dsh-tavern-image-candidate'
+$backup = Join-Path $env:USERPROFILE 'dsh-tavern-image-backup-before-canonical-migration'
+if (-not (Test-Path -LiteralPath $plugin -PathType Container)) { throw "找不到旧插件目录：$plugin" }
+if (Test-Path -LiteralPath $backup) { throw "备份目录已存在，请先检查：$backup" }
+if (-not (Test-Path -LiteralPath (Join-Path $source 'package.json') -PathType Leaf)) { throw "候选源码目录无效：$source" }
+Copy-Item -LiteralPath $plugin -Destination $backup -Recurse
+
+$dshCli = Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd'
+if (Test-Path -LiteralPath $dshCli) {
+  & $dshCli plugin --profile tavern remove dsh-tavern-comfy
+} else {
+  $dshCli = Join-Path $env:LOCALAPPDATA 'Programs\DSH Desktop\resources\app\node_modules\@deepseek-ai\dsh\lib\bin.js'
+  if (-not (Test-Path -LiteralPath $dshCli -PathType Leaf)) { throw '找不到 DSH 官方 CLI；请先定位正确的 CLI 路径。' }
+  $env:PATH = "$env:USERPROFILE\.dsh\runtime;$env:PATH"
+  node $dshCli plugin --profile tavern remove dsh-tavern-comfy
+}
+if ($LASTEXITCODE -ne 0) { throw 'DSH 官方 CLI 未能移除旧包登记；停止迁移并保留备份。' }
+
+$codeFiles = @(
+  'package.json', 'client.js', 'cordis.patch.yml', 'console.html', 'design-rules.md',
+  'LICENSE', 'README.md', '世界书-通用生图规则.json', '世界书-角色与服装库.json',
+  'scripts/install-plugin.ps1', 'scripts/Install-DshTavernImage.cmd', 'scripts/Package-DshTavernImage.ps1'
+)
+foreach ($file in $codeFiles) {
+  Copy-Item -LiteralPath (Join-Path $source $file) -Destination (Join-Path $plugin $file) -Force
+}
+robocopy (Join-Path $source 'lib') (Join-Path $plugin 'lib') /E
+if ($LASTEXITCODE -ge 8) { throw '复制插件代码失败；保留备份并停止迁移。' }
+
+if ([IO.Path]::GetExtension($dshCli) -eq '.cmd') {
+  & $dshCli plugin --profile tavern add "link:$($plugin.Replace('\', '/'))" --ignore-scripts
+} else {
+  node $dshCli plugin --profile tavern add "link:$($plugin.Replace('\', '/'))" --ignore-scripts
+}
+if ($LASTEXITCODE -ne 0) { throw 'DSH 官方 CLI 未能登记新包；保留备份并修复 CLI 后再继续。' }
 ~~~
 
-如果终端已配置 `dsh` 命令，也可用 `dsh plugin --profile tavern add "link:<插件完整路径>" --ignore-scripts`。以上调用的是 DSH 官方 CLI 的包管理入口；包名仍为 `dsh-tavern-comfy`，CLI 会改正 Profile link 与 `node_modules` 链接，并按包里的 patch 登记 `dsh-tavern-comfy` bundle（patch 中的插件 ID 是 `dsh-tavern-image`）。其他 Profile 请替换 `tavern`。不要只改目录名或手工编辑 Profile 的 bundle 清单；如果 DSH CLI/pnpm 命令失败，先修复官方包管理器，不要用裸 `pnpm add` 冒充完成注册。
+把 `$source` 改成 2.9.1 候选仓库目录。上述复制只替换程序、两个只读 seed 和发行文件，保留原目录中的 `config.json`、`definitions.json`、`worldbook-outfits.json`、`workflows`、缓存及历史数据；整份备份在确认迁移成功前不要删除。若旧目录叫 `dsh-tavern-comfy`，先安全改名后再运行本步骤。其他 Profile 请把命令中的 `tavern` 改成对应名称。确认 CLI 成功后检查 Profile 只登记 `dsh-tavern-image`，再完整启动 DSH。安装器遇到旧登记时会停止并给出官方 `plugin remove` 指引；它不会替你编辑 Profile 或覆盖现有插件目录。若官方 CLI/pnpm 操作失败，保留备份并先修复官方包管理器，不要手改 bundle 或用裸 `pnpm add` 冒充完成注册。
 
 **1.2.0 及更早版本**若通过 Git 安装，可先检查 `git status` 和分支、备份本地改动并退出 DSH，再把旧远端改到官方仓库并快进更新。出现本地改动或冲突时停止，不要强制覆盖。更新后按上面步骤改名并重新登记 link。配置、人物资料和历史记录留在原目录；若新旧目录都存在，先核实备份，不要合并或覆盖。
 
@@ -301,11 +334,11 @@ node $dshCli plugin --profile tavern add "link:$env:USERPROFILE/.dsh/profile-dat
 
 ## 兼容与许可
 
-当前版本 **2.6.0**。插件清单声明的 DSH 兼容范围为 `>=0.1.0-rc.8 <0.3.0`，覆盖 DSH 0.1.5 与 0.2.x（含 DeepSeek Harness 0.2.1-rc.2 / Tavern 3.0）；角色历史另外需要 Tavern 插件接口 v2。
+当前本地体验候选为 **2.9.1**（未发布）。插件清单声明的 DSH 兼容范围为 `>=0.1.0-rc.8 <0.3.0`，覆盖 DSH 0.1.5 与 0.2.x（含 DeepSeek Harness 0.2.1-rc.2 / Tavern 3.0）；角色历史另外需要 Tavern 插件接口 v2。
 
 在 DSH 0.2.1-rc.2 + Tavern 3.0.0 上核对过：插件 bundle 正常加载（宿主加载器返回 0 个被跳过的包），本插件调用的 14 个 Tavern 接口（`attach`、`update`、`remove`、`list`、`getTurn`、`readTurnData`、`saveTurnData`、`promptSection`、`onTurnSettled`、`onGameRemoved`、`onTimelineChanged`、`getCardContext`、`backgroundModel`、`apiVersion`）在 Tavern 3.0 中全部保留，3.0 相对 2.7 的接口变化是纯新增（例如 `versionSignal`）。
 
-为保留现有 DSH 安装的包解析兼容，包名和浏览器模块加载键仍使用 `dsh-tavern-comfy`；插件 ID、主接口前缀和新安装目录使用 `dsh-tavern-image`。
+新包名、浏览器模块加载键、bundle 名称和插件 ID 统一为 `dsh-tavern-image`。旧包名 `dsh-tavern-comfy` 仅用于兼容读取和迁移现有 Profile 注册。
 
 界面与功能设计参考了 [st-chatu8](https://github.com/damoshen123/st-chatu8/tree/50f0d200caea17c448e80432f1b54d65ed8ce9cd) 和 [柏宝绘](https://github.com/baibai-git/ST-BaiBai-Image)。
 

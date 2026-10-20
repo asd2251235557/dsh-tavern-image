@@ -10,9 +10,8 @@
  *
  * 配置读取失败时安静退化成纯文本，绝不在宿主启动阶段抛错。 */
 window.__ModuleLoader__.load({
-  // DSH resolves browser registrations by package.json.name. Keep this key
-  // during the upgrade bridge; the host/plugin identity is image.
-  id: 'dsh-tavern-comfy',
+  // DSH resolves browser registrations by package.json.name.
+  id: 'dsh-tavern-image',
   factory: (require) => {
     const module = { exports: {} }
     const exports = module.exports

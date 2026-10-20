@@ -37,7 +37,7 @@ test('published offline packager creates a clean installer bundle matching the s
     'param([string]$ArchivePath,[string]$DestinationPath)',
     'Expand-Archive -LiteralPath $ArchivePath -DestinationPath $DestinationPath -Force',
   ].join('\n'))
-  await writeFile(inspectScript, [
+  await writeFile(inspectScript, '\uFEFF' + [
     'param([string]$ArchivePath)',
     'Add-Type -AssemblyName System.IO.Compression',
     'Add-Type -AssemblyName System.IO.Compression.FileSystem',
@@ -50,9 +50,10 @@ test('published offline packager creates a clean installer bundle matching the s
     '    if (-not $name.StartsWith("dsh-tavern-image/")) { throw "entry outside source root: $name" }',
     '  }',
     '  if (-not ($names | Where-Object { $_ -match "[^\x00-\x7F]" })) { throw "missing a non-ASCII source filename" }',
-    '  foreach ($expected in @("dsh-tavern-image/lib/vendor/NOTICE.md")) {',
+    '  foreach ($expected in @("dsh-tavern-image/lib/vendor/NOTICE.md", "dsh-tavern-image/世界书-通用生图规则.json", "dsh-tavern-image/世界书-角色与服装库.json")) {',
     '    if (-not ($names -contains $expected)) { throw "missing expected source entry: $expected" }',
     '  }',
+    '  if ($names -contains "dsh-tavern-image/worldbook-outfits.json") { throw "user data must not be packaged" }',
     '} finally { $archive.Dispose() }',
 ].join('\n'))
   const manifestArchiveScript = join(directory, 'create-manifest-archive.ps1')
@@ -122,7 +123,12 @@ test('published offline packager creates a clean installer bundle matching the s
   }
   assert.equal(expectedFiles.size, 0)
   const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'))
+  assert.equal(manifest.name, 'dsh-tavern-image')
+  assert.equal(manifest.version, '2.9.1')
   assert.equal(manifest.version, sourceManifest.version)
+  const installedPatch = await readFile(join(packageRoot, 'cordis.patch.yml'), 'utf8')
+  assert.match(installedPatch, /id: dsh-tavern-image\s+name: dsh-tavern-image/)
+  assert.doesNotMatch(installedPatch, /name: dsh-tavern-comfy/)
   assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml')
   assert.ok(await stat(join(packageRoot, 'scripts', 'install-plugin.ps1')))
   assert.ok(await stat(join(packageRoot, 'scripts', 'Install-DshTavernImage.cmd')))

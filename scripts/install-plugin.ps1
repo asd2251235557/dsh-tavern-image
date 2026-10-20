@@ -13,14 +13,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Repository = 'weixinlll/dsh-tavern-image'
-$PackageName = 'dsh-tavern-comfy'
+$PackageName = 'dsh-tavern-image'
+$LegacyPackageName = 'dsh-tavern-comfy'
 $ExpectedBundleId = 'dsh-tavern-image'
 $Version = 'unknown'
 $MaximumArchiveBytes = 20MB
 $MaximumUncompressedBytes = 64MB
 $AllowedFiles = @(
   'package.json', 'client.js', 'cordis.patch.yml', 'console.html', 'design-rules.md',
-  'LICENSE', 'README.md', '世界书-通用生图规则.json', 'workflows/.gitkeep',
+  'LICENSE', 'README.md', '世界书-通用生图规则.json', '世界书-角色与服装库.json', 'workflows/.gitkeep',
   'scripts/install-plugin.ps1', 'scripts/Install-DshTavernImage.cmd', 'scripts/Package-DshTavernImage.ps1'
 )
 
@@ -403,15 +404,6 @@ try {
   if ($existingStage) {
     throw "发现另一个安装遗留或正在使用的暂存目录，安装器不会删除它：$($existingStage.FullName)。请确认没有其他安装正在运行后手动检查。"
   }
-  if (Test-Path -LiteralPath $pluginPath) {
-    $looksInstalled = Test-Path -LiteralPath (Join-Path $pluginPath 'package.json') -PathType Leaf
-    $stateText = if ($looksInstalled) { '目录里有 package.json，看起来是一份已装好的插件' } else { '目录里没有 package.json，多半是上次失败留下的残留' }
-    throw ("目标目录已存在，安装器不会覆盖或合并：$pluginPath（$stateText）`n" +
-      "  1) 如果这是你正在用的安装：请用 DSH Tavern 的「设置 → 本地生图 → 插件更新」，不要重跑安装器。`n" +
-      "  2) 如果是上次安装失败留下的残留：先删掉它，再重跑本安装器：`n" +
-      "       Remove-Item -LiteralPath '$pluginPath' -Recurse -Force`n" +
-      "  3) 旧版目录迁移：见 README「旧版目录迁移」一节。")
-  }
   if (-not (Test-Path -LiteralPath $profilePath -PathType Container)) {
     throw "Profile 不存在：$profilePath。请先在 DSH Desktop 中创建并启动该 Profile，再重试。"
   }
@@ -419,6 +411,22 @@ try {
     throw "Profile package.json 不存在：$profilePath。为保护现有 Profile，安装器不会初始化或改写它。"
   }
   $profileManifest = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $profilePath 'package.json') | ConvertFrom-Json
+  $legacySpec = [string]$profileManifest.dependencies.$LegacyPackageName
+  if (-not $legacySpec) { $legacySpec = [string]$profileManifest.devDependencies.$LegacyPackageName }
+  $legacyBundle = @($profileManifest.dsh.profile.bundles) -contains $LegacyPackageName
+  if ($legacySpec -or $legacyBundle) {
+    throw ("Profile 仍登记旧插件名 $LegacyPackageName" +
+      $(if ($legacySpec) { "（$legacySpec）" } else { '（bundle）' }) +
+      ". 安装器不会新增第二份注册或改写 Profile。请先完全退出 DSH，并在官方 CLI 执行 dsh plugin --profile $Profile remove $LegacyPackageName；保留现有插件目录和用户数据，按 README「旧版目录迁移」更新代码后，再用官方 CLI 注册 $PackageName；不要对现有目录重跑安装器。")
+  }
+  if (Test-Path -LiteralPath $pluginPath) {
+    $looksInstalled = Test-Path -LiteralPath (Join-Path $pluginPath 'package.json') -PathType Leaf
+    $stateText = if ($looksInstalled) { '目录里有 package.json，看起来是一份已装好的插件' } else { '目录里没有 package.json，多半是上次失败留下的残留' }
+    throw ("目标目录已存在，安装器不会覆盖或合并：$pluginPath（$stateText）`n" +
+      "  1) 如果这是你正在用的安装：请用 DSH Tavern 的「设置 → 本地生图 → 插件更新」，不要重跑安装器。`n" +
+      "  2) 如果是上次安装失败留下的残留：先检查并备份后再处理，然后重跑本安装器。`n" +
+      "  3) 旧版目录迁移：见 README「旧版目录迁移」一节。")
+  }
   $existingSpec = [string]$profileManifest.dependencies.$PackageName
   if (-not $existingSpec) { $existingSpec = [string]$profileManifest.devDependencies.$PackageName }
   if ($existingSpec) {

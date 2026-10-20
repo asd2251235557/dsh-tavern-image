@@ -118,6 +118,7 @@ function harness(extra = {}, characters = [person('a', '甲'), person('b', '乙'
 }
 
 test('client module registration matches the package key DSH uses to load it', () => {
+  assert.equal(packageName, 'dsh-tavern-image')
   assert.equal(harness().moduleId, packageName)
 })
 

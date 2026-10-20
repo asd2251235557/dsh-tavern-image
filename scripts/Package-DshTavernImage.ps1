@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $RepositoryRoot = Split-Path -Parent $PSScriptRoot
 $SourceFiles = @(
   'package.json', 'client.js', 'cordis.patch.yml', 'console.html', 'design-rules.md',
-  'LICENSE', 'README.md', '世界书-通用生图规则.json', 'workflows/.gitkeep',
+  'LICENSE', 'README.md', '世界书-通用生图规则.json', '世界书-角色与服装库.json', 'workflows/.gitkeep',
   'scripts/install-plugin.ps1', 'scripts/Install-DshTavernImage.cmd', 'scripts/Package-DshTavernImage.ps1'
 )
 

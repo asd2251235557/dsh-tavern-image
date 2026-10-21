@@ -48,6 +48,38 @@ test('NovelAI sends separate positive/negative prompts and extracts a bounded ZI
   assert.deepEqual(out.bytes, png)
 })
 
+test('NovelAI 多角色分区写进 v4_prompt 与 v4_negative_prompt 的 char_captions', async () => {
+  const zip = storedZip('result.png', png), { fetchImpl, calls } = mockFetch(() => new Response(zip))
+  const requestWithChars = {
+    ...request,
+    positive: 'café table, 1girl, 1boy, warm light',
+    charCaptions: [
+      { id: 'c1', name: '小玉', prompt: 'long black hair, blue eyes, white blouse', negative: 'glasses' },
+      { id: 'c2', name: '阿岚', prompt: 'short brown hair, green eyes, dark grey t-shirt', negative: '' },
+    ],
+  }
+  await generateImage(channel('novelai', { baseUrl: 'https://image.test' }), requestWithChars, { fetchImpl })
+  const body = JSON.parse(calls[0].body)
+  assert.equal(body.input, requestWithChars.positive)
+  assert.deepEqual(body.parameters.v4_prompt, {
+    caption: {
+      base_caption: requestWithChars.positive,
+      char_captions: [
+        { char_caption: 'long black hair, blue eyes, white blouse', centers: [{}] },
+        { char_caption: 'short brown hair, green eyes, dark grey t-shirt', centers: [{}] },
+      ],
+    },
+    use_coords: false,
+    use_order: true,
+  })
+  // 只有写了负面词的角色才进负面分区，base 负面保持不变。
+  assert.deepEqual(body.parameters.v4_negative_prompt, {
+    caption: { base_caption: request.negative, char_captions: [{ char_caption: 'glasses', centers: [{}] }] },
+    legacy_uc: false,
+  })
+  assert.deepEqual(body.parameters.characterPrompts.map(item => item.prompt), ['long black hair, blue eyes, white blouse', 'short brown hair, green eyes, dark grey t-shirt'])
+})
+
 test('NovelAI option CFG, steps, and explicit dimensions override request defaults', async () => {
   const zip = storedZip('result.png', png), { fetchImpl, calls } = mockFetch(() => new Response(zip))
   await generateImage(channel('novelai', { baseUrl: 'https://image.test', options: { cfg: 4.5, steps: 31, size: '1024x1536' } }), { ...request, cfg: undefined, steps: undefined }, { fetchImpl })

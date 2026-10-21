@@ -2354,6 +2354,10 @@ function versionsOf(jobId) {
       const [improveDraft, setImproveDraft] = React.useState({})
       // 从别的角色复制服装：{ target: 目标角色 id, source: 来源角色 id, picked: 选中的服装 id }
       const [outfitCopy, setOutfitCopy] = React.useState({ target: '', source: '', picked: [] })
+      // 通用服装库当前选中哪一套（只编辑这一套，不再全部铺开）
+      const [libraryActive, setLibraryActive] = React.useState('')
+      // 角色服装：每个角色记住当前编辑的是哪一套（角色 id → 服装 id）
+      const [outfitPick, setOutfitPick] = React.useState({})
       // 正在跑的改进任务（按角色 id 去重，不妨碍连续生成别的）
       const improveInFlight = React.useRef({})
       // 保存状态：'' 空闲 / 'saving' / 'saved' / 'failed:原因'
@@ -3862,26 +3866,40 @@ function versionsOf(jobId) {
               area('形态线索', '同一角色有多个形态时（名字互为前缀，如「阿梅」与「阿梅（狐形）」）填在形态条目上，逗号分隔，如 fox ears, fox tail, 狐耳。画面写着这些时，规划写的基础名字会自动换成这个形态', c.formCues || '', v => patch(i, { formCues: v }), 1),
             ),
             h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '12px', fontWeight: 600 } }, '服装库'),
-            outfits.map((o, j) => h('div', { key: o.id || j, style: { borderTop: '1px solid var(--dsw-alias-border-l2)', marginTop: '8px', paddingTop: '6px' } },
-              h('div', { style: S.row },
-                h('input', { type: 'text', placeholder: '服装名（常服 / 居家 / 内衣…）', value: o.name || '', style: Object.assign({}, S.input, { width: '170px' }), onChange: e => patchOutfit(i, j, { name: e.target.value }) }),
-                h('label', { style: S.row }, h('input', { type: 'radio', name: 'default-outfit-' + i, checked: o.default === true, onChange: () => patch(i, { outfits: outfits.map((x, k) => Object.assign({}, x, { default: k === j })) }) }), h('span', { style: { fontSize: '12px' } }, '常穿')),
-                h('label', { style: S.row }, h('input', { type: 'checkbox', checked: o.enabled !== false, onChange: e => patchOutfit(i, j, { enabled: e.target.checked }) }), h('span', { style: { fontSize: '12px' } }, '启用')),
-                h('button', { style: buttonStyle, onClick: () => { const next = outfits.slice(); next.splice(j, 1); patch(i, { outfits: next }) } }, '删'),
-              ),
-              h('details', { style: { marginTop: '4px' } },
-                h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: 'var(--dsw-alias-label-secondary)', marginTop: '4px' } }, '字段（上衣 / 下装 / 鞋袜 / 配饰 / 整体 / 背面 / 负面）'),
-              area('上衣', '', o.upper, v => patchOutfit(i, j, { upper: v }), 2),
-              area('下装', '', o.lower, v => patchOutfit(i, j, { lower: v }), 2),
-              h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' } },
-                h('input', { type: 'text', placeholder: '鞋袜', value: o.shoes || '', style: S.input, onChange: e => patchOutfit(i, j, { shoes: e.target.value }) }),
-                h('input', { type: 'text', placeholder: '配饰', value: o.accessory || '', style: S.input, onChange: e => patchOutfit(i, j, { accessory: e.target.value }) }),
-                h('input', { type: 'text', placeholder: '整体印象（formal / casual…）', value: o.full || '', style: S.input, onChange: e => patchOutfit(i, j, { full: e.target.value }) }),
-                h('input', { type: 'text', placeholder: '背面细节', value: o.back || '', style: S.input, onChange: e => patchOutfit(i, j, { back: e.target.value }) }),
-              ),
-              area('负面', '', o.negative, v => patchOutfit(i, j, { negative: v }), 2),
-              ),
-            )),
+            // 下拉选一套来编辑：服装多时不再每套铺一张卡
+            (() => {
+              if (!outfits.length) return h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', margin: '8px 0' } }, '还没添加服装，点下面「新增服装」。')
+              const activeId = outfitPick[c.id] && outfits.some((o, j) => String(o.id || j) === outfitPick[c.id]) ? outfitPick[c.id] : String(outfits[0].id || 0)
+              const j = outfits.findIndex((o, k) => String(o.id || k) === activeId)
+              const o = outfits[j] || outfits[0]
+              return h('div', null,
+                h('div', { style: Object.assign({}, S.row, { marginTop: '6px' }) },
+                  h('select', {
+                    'aria-label': '选择服装',
+                    title: '选一套来编辑；字段只在下面显示',
+                    value: activeId,
+                    style: Object.assign({}, S.input, { maxWidth: '220px' }),
+                    onChange: e => setOutfitPick(cur => Object.assign({}, cur, { [c.id]: e.target.value })),
+                  }, outfits.map((item, k) => h('option', { key: item.id || k, value: String(item.id || k), style: { color: 'CanvasText', backgroundColor: 'Canvas' } },
+                    (item.name || '（未命名服装）') + (item.default === true ? '（常穿）' : '') + (item.enabled === false ? '（已停用）' : '')))),
+                  h('label', { style: S.row }, h('input', { type: 'radio', name: 'default-outfit-' + i, checked: o.default === true, onChange: () => patch(i, { outfits: outfits.map((x, k) => Object.assign({}, x, { default: k === j })) }) }), h('span', { style: { fontSize: '12px' } }, '常穿')),
+                  h('label', { style: S.row }, h('input', { type: 'checkbox', checked: o.enabled !== false, onChange: e => patchOutfit(i, j, { enabled: e.target.checked }) }), h('span', { style: { fontSize: '12px' } }, '启用')),
+                  h('button', { style: buttonStyle, onClick: () => { const next = outfits.slice(); next.splice(j, 1); setOutfitPick(cur => Object.assign({}, cur, { [c.id]: '' })); patch(i, { outfits: next }) } }, '删除这一套'),
+                ),
+                h('div', { style: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--dsw-alias-border-l2)' } },
+                  h('input', { type: 'text', placeholder: '服装名（常服 / 居家 / 内衣…）', value: o.name || '', style: Object.assign({}, S.input, { width: '220px' }), onChange: e => patchOutfit(i, j, { name: e.target.value }) }),
+                  area('上衣', '', o.upper, v => patchOutfit(i, j, { upper: v }), 2),
+                  area('下装', '', o.lower, v => patchOutfit(i, j, { lower: v }), 2),
+                  h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' } },
+                    h('input', { type: 'text', placeholder: '鞋袜', value: o.shoes || '', style: S.input, onChange: e => patchOutfit(i, j, { shoes: e.target.value }) }),
+                    h('input', { type: 'text', placeholder: '配饰', value: o.accessory || '', style: S.input, onChange: e => patchOutfit(i, j, { accessory: e.target.value }) }),
+                    h('input', { type: 'text', placeholder: '整体印象（formal / casual…）', value: o.full || '', style: S.input, onChange: e => patchOutfit(i, j, { full: e.target.value }) }),
+                    h('input', { type: 'text', placeholder: '背面细节', value: o.back || '', style: S.input, onChange: e => patchOutfit(i, j, { back: e.target.value }) }),
+                  ),
+                  area('负面', '', o.negative, v => patchOutfit(i, j, { negative: v }), 2),
+                ),
+              )
+            })(),
             h('div', { style: S.row },
               h('button', { style: buttonStyle, onClick: () => patch(i, { outfits: outfits.concat([{ id: 'o' + Date.now(), name: '新服装', upper: '', lower: '', shoes: '', accessory: '', full: '', back: '', negative: '', enabled: true, default: outfits.length === 0 }]) }) }, '新增服装'),
               h('button', { style: buttonStyle, onClick: () => setOutfitCopy(current => current.target === c.id ? { target: '', source: '', picked: [] } : { target: c.id, source: '', picked: [], mode: 'whole', parts: {} }) }, outfitCopy.target === c.id ? '收起复制' : '从其他角色复制服装'),
@@ -4107,29 +4125,108 @@ function versionsOf(jobId) {
           h('div', { style: S.card },
             h('div', { style: { fontSize: '13px', marginBottom: '4px' } }, '通用服装库（可跨角色复用）'),
             h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } }, '这里放"办公室职业装""居家睡衣"这类通用套装；在角色那边勾上，他就能穿。'),
-            (data.outfits || []).map((o, j) => h('div', { key: o.id || j, style: { borderTop: '1px solid var(--dsw-alias-border-l2)', marginTop: '8px', paddingTop: '6px' } },
-              h('div', { style: S.row },
-                h('input', { type: 'text', placeholder: '套装名', value: o.name || '', style: Object.assign({}, S.input, { width: '190px' }), onChange: e => { const next = (data.outfits || []).slice(); next[j] = Object.assign({}, o, { name: e.target.value }); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }),
-                h('label', { style: S.row }, h('input', { type: 'checkbox', checked: o.enabled !== false, onChange: e => { const next = (data.outfits || []).slice(); next[j] = Object.assign({}, o, { enabled: e.target.checked }); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }), h('span', { style: { fontSize: '12px' } }, '启用')),
-                h('button', { style: buttonStyle, onClick: () => { const next = (data.outfits || []).slice(); next.splice(j, 1); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }, '删除'),
-              ),
-              h('details', { style: { marginTop: '6px' } },
-                h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: 'var(--dsw-alias-label-secondary)', marginTop: '4px' } }, '字段（上衣 / 下装 / 鞋袜 / 整体）'),
-              h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' } },
-              ),
-                h('input', { type: 'text', placeholder: '上衣', value: o.upper || o.body || '', style: S.input, onChange: e => { const next = (data.outfits || []).slice(); next[j] = Object.assign({}, o, { upper: e.target.value }); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }),
-                h('input', { type: 'text', placeholder: '下装', value: o.lower || '', style: S.input, onChange: e => { const next = (data.outfits || []).slice(); next[j] = Object.assign({}, o, { lower: e.target.value }); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }),
-                h('input', { type: 'text', placeholder: '鞋袜', value: o.shoes || '', style: S.input, onChange: e => { const next = (data.outfits || []).slice(); next[j] = Object.assign({}, o, { shoes: e.target.value }); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }),
-                h('input', { type: 'text', placeholder: '整体', value: o.full || '', style: S.input, onChange: e => { const next = (data.outfits || []).slice(); next[j] = Object.assign({}, o, { full: e.target.value }); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }),
-              ),
-            )),
+            // 下拉选一套来编辑：套装多时不再每套铺一张卡
+            (() => {
+              const list = data.outfits || []
+              if (!list.length) return h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', margin: '8px 0' } }, '还没有套装，点下面「新增套装」。')
+              const activeId = libraryActive && list.some((o, j) => String(o.id || j) === libraryActive) ? libraryActive : String(list[0].id || 0)
+              const idx = list.findIndex((o, j) => String(o.id || j) === activeId)
+              const o = list[idx] || list[0]
+              const patchLib = (changes) => {
+                const next = list.slice()
+                next[idx] = Object.assign({}, o, changes)
+                setLibraryData(Object.assign({}, dataRef.current, { outfits: next }))
+              }
+              return h('div', null,
+                h('div', { style: Object.assign({}, S.row, { marginTop: '8px' }) },
+                  h('select', {
+                    'aria-label': '选择套装',
+                    title: '选一套来编辑；字段只在下面这一块显示',
+                    value: activeId,
+                    style: Object.assign({}, S.input, { maxWidth: '240px' }),
+                    onChange: e => setLibraryActive(e.target.value),
+                  }, list.map((item, k) => h('option', { key: item.id || k, value: String(item.id || k), style: { color: 'CanvasText', backgroundColor: 'Canvas' } },
+                    (item.name || '（未命名套装）') + (item.enabled === false ? '（已停用）' : '')))),
+                  h('label', { style: S.row }, h('input', { type: 'checkbox', checked: o.enabled !== false, onChange: e => patchLib({ enabled: e.target.checked }) }), h('span', { style: { fontSize: '12px' } }, '启用')),
+                  h('button', { style: buttonStyle, onClick: () => { const next = list.slice(); next.splice(idx, 1); setLibraryActive(''); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }, '删除这一套'),
+                ),
+                h('div', { style: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--dsw-alias-border-l2)' } },
+                  h('input', { type: 'text', placeholder: '套装名（办公室职业装 / 居家睡衣…）', value: o.name || '', style: Object.assign({}, S.input, { width: '240px' }), onChange: e => patchLib({ name: e.target.value }) }),
+                  h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' } },
+                    h('input', { type: 'text', placeholder: '上衣', value: o.upper || o.body || '', style: S.input, onChange: e => patchLib({ upper: e.target.value }) }),
+                    h('input', { type: 'text', placeholder: '下装', value: o.lower || '', style: S.input, onChange: e => patchLib({ lower: e.target.value }) }),
+                    h('input', { type: 'text', placeholder: '鞋袜', value: o.shoes || '', style: S.input, onChange: e => patchLib({ shoes: e.target.value }) }),
+                    h('input', { type: 'text', placeholder: '整体（formal / casual…）', value: o.full || '', style: S.input, onChange: e => patchLib({ full: e.target.value }) }),
+                    h('input', { type: 'text', placeholder: '配饰', value: o.accessory || '', style: S.input, onChange: e => patchLib({ accessory: e.target.value }) }),
+                    h('input', { type: 'text', placeholder: '背面细节', value: o.back || '', style: S.input, onChange: e => patchLib({ back: e.target.value }) }),
+                  ),
+                ),
+              )
+            })(),
             h('div', { style: S.row },
               h('button', { style: buttonStyle, onClick: () => setLibraryData(Object.assign({}, dataRef.current, { outfits: (data.outfits || []).concat([{ id: 'of' + Date.now(), name: '新套装', upper: '', lower: '', shoes: '', accessory: '', full: '', back: '', negative: '', enabled: true }]) })) }, '新增套装'),
               h('button', { style: buttonStyle, onClick: () => commit() }, '保存服装库'),
+              h('button', { style: buttonStyle, title: '把角色库、两本世界书、渠道配置、历史记录打包成一个 JSON', onClick: exportAllData }, '导出全部数据'),
+              h('button', { style: buttonStyle, title: '从备份 JSON 恢复；会先自动备份当前数据', onClick: importAllData }, '导入全部数据'),
             ),
           ),
         )
       }
+      /** 把全部数据导出成一个 JSON 文件（六份数据，含渠道配置） */
+      async function exportAllData() {
+        try {
+          setNote('正在打包数据…')
+          const r = await post('/export-all', {})
+          if (!r?.ok || !r.bundle) throw new Error(r?.error || '导出失败')
+          const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+          const url = URL.createObjectURL(new Blob([JSON.stringify(r.bundle, null, 2)], { type: 'application/json' }))
+          const link = document.createElement('a')
+          link.href = url
+          link.download = 'dsh-tavern-image-' + stamp + '.json'
+          link.click()
+          URL.revokeObjectURL(url)
+          const c = r.bundle.counts || {}
+          const msg = '已导出：角色 ' + (c.characters || 0) + ' 个、服装 ' + (c.outfits || 0) + ' 套、规则 ' + (c.worldbook || 0) + ' 条、服装规则 ' + (c.worldbookOutfits || 0) + ' 条'
+          setNote(msg + '（图片本体不在包里）')
+          if (typeof showToast === 'function') showToast(msg)
+        } catch (error) {
+          const msg = '导出失败：' + (error?.message ?? error)
+          setNote(msg)
+          if (typeof showToast === 'function') showToast(msg, 'fail')
+        }
+      }
+
+      /** 选一个备份 JSON 导入，写回六份数据（不碰任何代码） */
+      async function importAllData() {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.accept = 'application/json,.json'
+        input.onchange = async () => {
+          const file = input.files && input.files[0]
+          if (!file) return
+          if (!confirm('导入会用备份里的数据覆盖当前的角色库、两本世界书、渠道配置与历史记录。\n当前数据会先自动备份一份。要继续吗？')) return
+          try {
+            setNote('正在导入…')
+            const text = await file.text()
+            let bundle = null
+            try { bundle = JSON.parse(text) } catch { throw new Error('文件不是合法 JSON') }
+            const r = await post('/import-all', { bundle })
+            if (!r?.ok) throw new Error(r?.error || r?.refused || '导入失败')
+            if (r?.state) receiveState(r.state)
+            const msg = '已导入：' + (r.written || []).join('、') + (r.skipped && r.skipped.length ? '（跳过：' + r.skipped.join('、') + '）' : '')
+            setNote(msg + (r.note ? '。' + r.note : ''))
+            if (typeof showToast === 'function') showToast(msg)
+            const fresh = await post('/state', {}).catch(() => null)
+            if (fresh) receiveState(fresh)
+          } catch (error) {
+            const msg = '导入失败：' + (error?.message ?? error)
+            setNote(msg)
+            if (typeof showToast === 'function') showToast(msg, 'fail')
+          }
+        }
+        input.click()
+      }
+
       /** 批量删除历史图。 */
       async function deleteJobBatch(ids) {
         const list = (Array.isArray(ids) ? ids : []).filter(Boolean)

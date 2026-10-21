@@ -6,7 +6,7 @@
  *   1. tavernUi.registerMediaRenderer  画自定义媒体类型（大图 / 右键改提示词 / 查看器）
  *   2. tavernUi.registerMessageAction  消息下方那颗「🎨 生图」按钮
  *   3. tavernUi.registerTextMarker     正文里模型自己写的 image###...### 标记
- *   4. 设置面板 / 控制台 / 历史图库 / 人物库 / 世界书 —— 插件自己的界面
+ *   4. 设置面板（设置 → 配图）/ 历史图库 / 人物库 / 世界书 —— 插件自己的界面
  *
  * 配置读取失败时安静退化成纯文本，绝不在宿主启动阶段抛错。 */
 window.__ModuleLoader__.load({
@@ -25,6 +25,8 @@ window.__ModuleLoader__.load({
 
     const h = React.createElement
     const { useEffect, useState } = React
+    // Tavern 的浏览器接口（tavernUi），注入后填上；设置页的画廊用它读 Tavern 原生生图的旧图。
+    let tavernUiService = null
 
     // 插件接口前缀。正文渲染跑在 Tavern 的渲染上下文里（不一定等于插件页面的 base），
 // 用相对路径会被解析到错误地址、图片直接加载失败，所以这里必须拼成绝对地址。
@@ -262,9 +264,9 @@ let openImageOverlay = null
     const wrapStyle = { margin: '14px 0', textAlign: 'center' }
     const imgStyle = { maxWidth: '100%', borderRadius: '10px', cursor: 'zoom-in', background: '#111' }
     const noteStyle = { display: 'inline-block', padding: '10px 16px', borderRadius: '10px', fontSize: '13px',
-      color: '#9aa3b2', border: '1px dashed #465365', background: 'rgba(255,255,255,.02)' }
-    const buttonStyle = { padding: '8px 16px', borderRadius: '9px', border: '1px solid #566275',
-      background: 'rgba(255,255,255,.04)', color: '#e8ebf1', cursor: 'pointer', fontSize: '13px' }
+      color: 'var(--dsw-alias-label-tertiary)', border: '1px dashed var(--dsw-alias-border-l2)', background: 'transparent' }
+    const buttonStyle = { padding: '8px 16px', borderRadius: '9px', border: '1px solid var(--dsw-alias-border-l2)',
+      background: 'transparent', color: 'var(--dsw-alias-label-primary)', cursor: 'pointer', fontSize: '13px' }
 
     // ---- 正文插图的统一显示宽度（全局设置）---------------------------------
     // 只改正文里的显示宽度：不重采样原图、不改生成分辨率，点开后的全屏看图也不受影响。
@@ -1969,16 +1971,34 @@ function versionsOf(jobId) {
       )
     }
 
-    // ================= 设置面板（设置 → 本地生图） =================
+    // ================= 设置面板（设置 → 配图） =================
     const S = {
-      surface: { background: '#0f131a', color: '#e8edf5' },
+      surface: { background: 'transparent', color: 'var(--dsw-alias-label-primary)' },
       row: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', margin: '8px 0' },
-      label: { fontSize: '13px', color: '#b2bdcc', minWidth: '92px' },
-      input: { background: '#1a2029', color: '#e8edf5', border: '1px solid #566275', borderRadius: '7px', padding: '6px 9px', fontSize: '13px' },
-      card: { border: '1px solid #465365', borderRadius: '10px', padding: '12px 14px', margin: '10px 0', background: 'rgba(255,255,255,.025)' },
-      tab: (on) => ({ padding: '5px 13px', borderRadius: '8px', border: '1px solid ' + (on ? '#79aaff' : '#566275'), background: on ? 'rgba(106,168,255,.2)' : 'rgba(255,255,255,.035)', color: on ? '#f2f6ff' : '#c5cedb', cursor: 'pointer', fontSize: '13px' }),
-      badge: (ok) => ({ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: ok ? '#4ec98a' : '#f2686b', marginRight: '6px' }),
+      label: { fontSize: '13px', color: 'var(--dsw-alias-label-secondary)', minWidth: '92px' },
+      input: { backgroundColor: 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: '8px', padding: '7px 10px', fontSize: '13px', lineHeight: '18px' },
+      card: { border: '1px solid var(--dsw-alias-border-l2)', borderRadius: '10px', padding: '12px 14px', margin: '10px 0', background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 2%, transparent)' },
+      tab: (on) => ({ padding: '5px 13px', borderRadius: '8px', border: '1px solid ' + (on ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-border-l2)'), background: on ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 20%, transparent)' : 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 4%, transparent)', color: on ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)', cursor: 'pointer', fontSize: '13px' }),
+      badge: (ok) => ({ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: ok ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-error-primary)', marginRight: '6px' }),
     }
+
+    // 设置页的原生控件统一外观：自画下拉箭头、焦点用强调色描边（行内样式管不到伪类和 appearance）。
+    const SETTINGS_CSS = `
+.dti-settings select { appearance: none; -webkit-appearance: none; padding-right: 30px !important; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%238a8f98' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; text-overflow: ellipsis; }
+.dti-settings select:disabled { cursor: default; opacity: .6; }
+.dti-settings select:focus, .dti-settings input:focus, .dti-settings textarea:focus { outline: none;
+  border-color: var(--dsw-alias-brand-primary) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-brand-primary) 16%, transparent); }
+.dti-settings input[type=checkbox] { accent-color: var(--dsw-alias-brand-primary); }
+.dti-switch { appearance: none; -webkit-appearance: none; flex-shrink: 0; width: 36px; height: 20px; margin: 0; border-radius: 10px; cursor: pointer; position: relative;
+  background: color-mix(in srgb, var(--dsw-alias-label-tertiary) 35%, transparent); transition: background .15s; }
+.dti-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
+.dti-switch:checked { background: var(--dsw-alias-brand-primary); }
+.dti-switch:checked::after { transform: translateX(16px); }
+.dti-field-label { font-size: 12px; color: var(--dsw-alias-label-secondary); margin-bottom: 6px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.dti-field-label small { font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+`
 
     function WorkflowGraphEditor(props) {
       const file = String(props?.file || '')
@@ -2159,57 +2179,57 @@ function versionsOf(jobId) {
       const chosen = nodes[selected]
       const primitiveFields = chosen ? Object.entries(chosen.inputs || {}).filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value) || value === null) : []
       const typeStyle = type => ({ borderLeft: '4px solid ' + nodeColor(type) })
-      const button = { background: '#171e29', color: '#fff', border: '1px solid #718097', borderRadius: '7px', padding: '6px 10px', cursor: 'pointer', fontSize: '12px' }
-      return h('div', { role: 'dialog', 'aria-modal': 'true', 'aria-label': '工作流可视化编辑器', style: { position: 'fixed', inset: 0, zIndex: 2147483200, display: 'flex', flexDirection: 'column', background: '#080d14', color: '#f4f7fb', fontFamily: 'system-ui, sans-serif' } },
-        h('header', { style: { minHeight: '58px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', borderBottom: '1px solid #384455', background: '#101722' } },
+      const button = { background: 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: '7px', padding: '6px 10px', cursor: 'pointer', fontSize: '12px' }
+      return h('div', { role: 'dialog', 'aria-modal': 'true', 'aria-label': '工作流可视化编辑器', style: { position: 'fixed', inset: 0, zIndex: 2147483200, display: 'flex', flexDirection: 'column', background: 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', fontFamily: 'system-ui, sans-serif' } },
+        h('header', { style: { minHeight: '58px', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', borderBottom: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-specific-input-major)' } },
           h('strong', { style: { fontSize: '15px', flex: 1 } }, '节点工作流 · ' + file.split(/[\\/]/).pop()),
-          h('span', { role: 'status', style: { color: isDirty() ? '#ffd166' : '#9eacbd', fontSize: '12px' } }, isDirty() ? '● 有未保存修改' : (raw ? ids.length + ' 节点 · ' + links.length + ' 连线' : '读取中…')),
+          h('span', { role: 'status', style: { color: isDirty() ? 'var(--dsw-alias-state-warning-primary)' : 'var(--dsw-alias-label-secondary)', fontSize: '12px' } }, isDirty() ? '● 有未保存修改' : (raw ? ids.length + ' 节点 · ' + links.length + ' 连线' : '读取中…')),
           h('button', { type: 'button', 'aria-label': '缩小', disabled: busy, style: button, onClick: () => changeZoom(-0.15) }, '−'),
           h('button', { type: 'button', 'aria-label': '放大', disabled: busy, style: button, onClick: () => changeZoom(0.15) }, '+'),
           h('button', { type: 'button', 'aria-label': '适配画布', disabled: busy, style: button, onClick: fitView }, '适配'),
           h('button', { type: 'button', 'aria-label': '重置视图', disabled: busy, style: button, onClick: resetView }, '重置'),
-          h('button', { type: 'button', 'aria-label': '保存工作流图', disabled: !raw || !isDirty() || busy, style: Object.assign({}, button, { background: '#17684d', borderColor: '#4ed4a2', opacity: !raw || !isDirty() || busy ? 0.55 : 1 }), onClick: save }, busy ? '保存中…' : '保存'),
-          h('button', { type: 'button', 'aria-label': '关闭工作流图', disabled: busy, style: Object.assign({}, button, { borderColor: '#b56f78', opacity: busy ? 0.55 : 1 }), onClick: close }, '关闭 ×'),
+          h('button', { type: 'button', 'aria-label': '保存工作流图', disabled: !raw || !isDirty() || busy, style: Object.assign({}, button, { background: 'color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent)', borderColor: 'var(--dsw-alias-state-success-primary)', opacity: !raw || !isDirty() || busy ? 0.55 : 1 }), onClick: save }, busy ? '保存中…' : '保存'),
+          h('button', { type: 'button', 'aria-label': '关闭工作流图', disabled: busy, style: Object.assign({}, button, { borderColor: 'var(--dsw-alias-state-error-primary)', opacity: busy ? 0.55 : 1 }), onClick: close }, '关闭 ×'),
         ),
           h('div', { style: { minHeight: 0, flex: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(220px, 28vw)' } },
-          h('div', { ref: canvasRef, role: 'application', 'aria-label': '工作流节点画布', onMouseDown: event => { if (!busy) beginPan(event) }, onMouseMove: movePointer, onMouseUp: () => setDrag(null), onMouseLeave: () => setDrag(null), onWheel: event => { event.preventDefault?.(); if (!busy) changeZoom(event.deltaY < 0 ? 0.08 : -0.08) }, style: { position: 'relative', overflow: 'hidden', cursor: drag?.kind === 'pan' ? 'grabbing' : 'grab', backgroundColor: '#0b111a', backgroundImage: 'radial-gradient(#344153 1px, transparent 1px)', backgroundSize: '22px 22px' } },
-            error ? h('div', { role: 'alert', style: { position: 'absolute', zIndex: 4, top: '12px', left: '12px', color: '#ff9a9e', background: '#21141a', border: '1px solid #854650', borderRadius: '7px', padding: '8px 12px', fontSize: '12px' } }, error) : null,
+          h('div', { ref: canvasRef, role: 'application', 'aria-label': '工作流节点画布', onMouseDown: event => { if (!busy) beginPan(event) }, onMouseMove: movePointer, onMouseUp: () => setDrag(null), onMouseLeave: () => setDrag(null), onWheel: event => { event.preventDefault?.(); if (!busy) changeZoom(event.deltaY < 0 ? 0.08 : -0.08) }, style: { position: 'relative', overflow: 'hidden', cursor: drag?.kind === 'pan' ? 'grabbing' : 'grab', backgroundColor: 'var(--dsw-specific-input-major)', backgroundImage: 'radial-gradient(var(--dsw-specific-input-major) 1px, transparent 1px)', backgroundSize: '22px 22px' } },
+            error ? h('div', { role: 'alert', style: { position: 'absolute', zIndex: 4, top: '12px', left: '12px', color: 'var(--dsw-alias-state-error-primary)', background: 'var(--dsw-specific-input-major)', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: '7px', padding: '8px 12px', fontSize: '12px' } }, error) : null,
             raw ? h('div', { style: { position: 'absolute', left: 0, top: 0, transform: 'translate(' + view.x + 'px,' + view.y + 'px) scale(' + view.scale + ')', transformOrigin: '0 0' } },
               h('svg', { 'aria-hidden': 'true', width: 1, height: 1, style: { position: 'absolute', left: 0, top: 0, overflow: 'visible', pointerEvents: 'none' } },
-                h('defs', null, h('marker', { id: 'workflow-graph-arrow', markerWidth: 8, markerHeight: 8, refX: 6, refY: 3, orient: 'auto', markerUnits: 'strokeWidth' }, h('path', { d: 'M0,0 L0,6 L7,3 z', fill: '#91a8c1' }))),
+                h('defs', null, h('marker', { id: 'workflow-graph-arrow', markerWidth: 8, markerHeight: 8, refX: 6, refY: 3, orient: 'auto', markerUnits: 'strokeWidth' }, h('path', { d: 'M0,0 L0,6 L7,3 z', fill: 'var(--dsw-alias-label-tertiary)' }))),
                 links.map((link, index) => {
                   const from = positions[link.source] || { x: 0, y: 0 }, to = positions[link.target] || { x: 0, y: 0 }
                   const x1 = from.x + nodeWidth, y1 = from.y + 56, x2 = to.x, y2 = to.y + 56, curve = Math.max(50, Math.abs(x2 - x1) * 0.45)
-                  return h('path', { key: index, d: 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + curve) + ' ' + y1 + ', ' + (x2 - curve) + ' ' + y2 + ', ' + x2 + ' ' + y2, fill: 'none', stroke: '#91a8c1', strokeWidth: 2.2, opacity: 0.9, markerEnd: 'url(#workflow-graph-arrow)' })
+                  return h('path', { key: index, d: 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + curve) + ' ' + y1 + ', ' + (x2 - curve) + ' ' + y2 + ', ' + x2 + ' ' + y2, fill: 'none', stroke: 'var(--dsw-alias-label-tertiary)', strokeWidth: 2.2, opacity: 0.9, markerEnd: 'url(#workflow-graph-arrow)' })
                 })),
               ids.map((id, index) => {
                 const node = nodes[id], position = positions[id] || { x: 0, y: 0 }, classType = node.class_type || '未知节点'
                 const primitiveCount = Object.values(node.inputs || {}).filter(value => value === null || ['string', 'number', 'boolean'].includes(typeof value)).length
-                return h('div', { key: id, role: 'button', tabIndex: 0, 'aria-label': '节点 ' + id + ' ' + classType, onClick: () => setSelected(id), onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault?.(); setSelected(id) } }, onMouseDown: event => { if (!busy) beginDrag(event, id) }, onMouseMove: movePointer, onMouseUp: () => setDrag(null), style: { position: 'absolute', left: position.x, top: position.y, width: nodeWidth, boxSizing: 'border-box', border: '1px solid ' + (selected === id ? '#fff' : nodeColor(classType)), borderRadius: '9px', background: '#151e2a', boxShadow: selected === id ? '0 0 0 2px rgba(255,255,255,.28), 0 8px 24px #0009' : '0 6px 18px #0008', overflow: 'hidden', cursor: drag?.id === id ? 'grabbing' : 'grab' } },
-                  h('div', { style: Object.assign({ padding: '9px 11px', background: '#222d3b', fontWeight: 650, fontSize: '12px', display: 'flex', justifyContent: 'space-between', gap: '8px' }, typeStyle(classType)) }, h('span', null, classType), h('span', { style: { color: '#acb9c9', fontWeight: 400 } }, '#' + id)),
-                  h('div', { style: { padding: '8px 11px', color: '#bfccdb', fontSize: '11px', lineHeight: '1.5' } }, primitiveCount ? primitiveCount + ' 个可编辑参数' : '参数由连线提供', node._meta?.title ? h('div', { style: { marginTop: '3px', color: '#97a8ba' } }, node._meta.title) : null),
+                return h('div', { key: id, role: 'button', tabIndex: 0, 'aria-label': '节点 ' + id + ' ' + classType, onClick: () => setSelected(id), onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault?.(); setSelected(id) } }, onMouseDown: event => { if (!busy) beginDrag(event, id) }, onMouseMove: movePointer, onMouseUp: () => setDrag(null), style: { position: 'absolute', left: position.x, top: position.y, width: nodeWidth, boxSizing: 'border-box', border: '1px solid ' + (selected === id ? 'var(--dsw-alias-label-primary)' : nodeColor(classType)), borderRadius: '9px', background: 'var(--dsw-specific-input-major)', boxShadow: selected === id ? '0 0 0 2px color-mix(in srgb, var(--dsw-alias-label-tertiary) 28%, transparent), 0 8px 24px #0009' : '0 6px 18px #0008', overflow: 'hidden', cursor: drag?.id === id ? 'grabbing' : 'grab' } },
+                  h('div', { style: Object.assign({ padding: '9px 11px', background: 'var(--dsw-specific-input-major)', fontWeight: 650, fontSize: '12px', display: 'flex', justifyContent: 'space-between', gap: '8px' }, typeStyle(classType)) }, h('span', null, classType), h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontWeight: 400 } }, '#' + id)),
+                  h('div', { style: { padding: '8px 11px', color: 'var(--dsw-alias-label-secondary)', fontSize: '11px', lineHeight: '1.5' } }, primitiveCount ? primitiveCount + ' 个可编辑参数' : '参数由连线提供', node._meta?.title ? h('div', { style: { marginTop: '3px', color: 'var(--dsw-alias-label-tertiary)' } }, node._meta.title) : null),
                 )
               }),
-            ) : h('div', { style: { padding: '24px', color: '#c1cfdf', fontSize: '13px' } }, error || '正在读取工作流…'),
+            ) : h('div', { style: { padding: '24px', color: 'var(--dsw-alias-label-secondary)', fontSize: '13px' } }, error || '正在读取工作流…'),
           ),
-          h('aside', { style: { overflowY: 'auto', borderLeft: '1px solid #384455', background: '#101722', padding: '16px', color: '#f4f7fb' } },
+          h('aside', { style: { overflowY: 'auto', borderLeft: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-specific-input-major)', padding: '16px', color: 'var(--dsw-alias-label-primary)' } },
             h('div', { style: { fontSize: '13px', fontWeight: 700, marginBottom: '12px' } }, chosen ? '节点检查器' : '选择一个节点'),
             chosen ? h('div', null,
-              h('div', { style: { padding: '10px', borderRadius: '8px', background: '#192331', borderLeft: '4px solid ' + nodeColor(chosen.class_type), marginBottom: '12px' } },
+              h('div', { style: { padding: '10px', borderRadius: '8px', background: 'var(--dsw-specific-input-major)', borderLeft: '4px solid ' + nodeColor(chosen.class_type), marginBottom: '12px' } },
                 h('div', { style: { fontSize: '13px', fontWeight: 650 } }, chosen._meta?.title || chosen.class_type || '未知节点'),
-                h('div', { style: { fontSize: '11px', color: '#b8c5d3', marginTop: '4px' } }, '节点 #' + selected + ' · ' + Object.keys(chosen.inputs || {}).length + ' 个输入')),
-              h('div', { style: { fontSize: '11px', lineHeight: 1.5, color: '#f0cc84', background: '#282116', padding: '8px', borderRadius: '7px', marginBottom: '12px' } }, '提示：绑定的正面、负面、种子和尺寸会被生成设置覆盖。'),
-              primitiveFields.length ? primitiveFields.map(([field, value]) => h('label', { key: field, style: { display: 'block', margin: '0 0 12px', fontSize: '11px', color: '#d4deea' } },
-                h('span', { style: { display: 'block', marginBottom: '5px', color: '#b8c5d3' } }, field + ' · ' + (typeof value === 'boolean' ? '布尔' : typeof value === 'number' ? '数字' : '文本')),
-                value === null ? h('div', { style: { color: '#9eacbd', fontStyle: 'italic' } }, '空值（只读）') : typeof value === 'boolean'
+                h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)', marginTop: '4px' } }, '节点 #' + selected + ' · ' + Object.keys(chosen.inputs || {}).length + ' 个输入')),
+              h('div', { style: { fontSize: '11px', lineHeight: 1.5, color: 'var(--dsw-alias-state-warning-primary)', background: 'var(--dsw-specific-input-major)', padding: '8px', borderRadius: '7px', marginBottom: '12px' } }, '提示：绑定的正面、负面、种子和尺寸会被生成设置覆盖。'),
+              primitiveFields.length ? primitiveFields.map(([field, value]) => h('label', { key: field, style: { display: 'block', margin: '0 0 12px', fontSize: '11px', color: 'var(--dsw-alias-label-primary)' } },
+                h('span', { style: { display: 'block', marginBottom: '5px', color: 'var(--dsw-alias-label-secondary)' } }, field + ' · ' + (typeof value === 'boolean' ? '布尔' : typeof value === 'number' ? '数字' : '文本')),
+                value === null ? h('div', { style: { color: 'var(--dsw-alias-label-secondary)', fontStyle: 'italic' } }, '空值（只读）') : typeof value === 'boolean'
                   ? h('input', { type: 'checkbox', disabled: busy, 'aria-label': field, checked: draft[selected]?.[field] === undefined ? value : (draft[selected][field] === true || draft[selected][field] === 'true'), onChange: event => setField(selected, field, event.target.checked) })
-                  : h(typeof value === 'string' && value.length > 100 ? 'textarea' : 'input', { type: typeof value === 'number' ? 'number' : 'text', disabled: busy, 'aria-label': field, value: inputValue(selected, field, value), onChange: event => setField(selected, field, event.target.value), style: { width: '100%', boxSizing: 'border-box', padding: '8px', borderRadius: '6px', border: '1px solid #66778d', background: busy ? '#151b24' : '#0c121b', color: '#fff', fontSize: '12px', minHeight: typeof value === 'string' && value.length > 100 ? '84px' : '34px' } }),
-              )) : h('div', { style: { color: '#b8c5d3', fontSize: '12px' } }, '此节点没有可编辑的普通参数。'),
-              h('div', { style: { borderTop: '1px solid #384455', paddingTop: '12px', marginTop: '10px', fontSize: '11px', color: '#b8c5d3' } },
+                  : h(typeof value === 'string' && value.length > 100 ? 'textarea' : 'input', { type: typeof value === 'number' ? 'number' : 'text', disabled: busy, 'aria-label': field, value: inputValue(selected, field, value), onChange: event => setField(selected, field, event.target.value), style: { width: '100%', boxSizing: 'border-box', padding: '8px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2)', background: busy ? 'var(--dsw-specific-input-major)' : 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', fontSize: '12px', minHeight: typeof value === 'string' && value.length > 100 ? '84px' : '34px' } }),
+              )) : h('div', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: '12px' } }, '此节点没有可编辑的普通参数。'),
+              h('div', { style: { borderTop: '1px solid var(--dsw-alias-border-l2)', paddingTop: '12px', marginTop: '10px', fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' } },
                 '已有连线（只读）',
-                links.filter(link => link.target === selected || link.source === selected).map((link, i) => h('div', { key: i, style: { marginTop: '6px', color: '#d7e2ee' } }, link.source + ' → ' + link.target + ' · ' + link.field))),
-            ) : h('div', { style: { color: '#b8c5d3', fontSize: '12px', lineHeight: 1.6 } }, '点选画布中的节点查看参数。可拖动节点调整布局，滚轮缩放，拖动画布空白处平移。'),
-            error ? h('div', { role: 'alert', style: { color: '#ff9a9e', fontSize: '12px', marginTop: '12px' } }, error) : null,
+                links.filter(link => link.target === selected || link.source === selected).map((link, i) => h('div', { key: i, style: { marginTop: '6px', color: 'var(--dsw-alias-label-primary)' } }, link.source + ' → ' + link.target + ' · ' + link.field))),
+            ) : h('div', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: '12px', lineHeight: 1.6 } }, '点选画布中的节点查看参数。可拖动节点调整布局，滚轮缩放，拖动画布空白处平移。'),
+            error ? h('div', { role: 'alert', style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: '12px', marginTop: '12px' } }, error) : null,
           ),
         ),
       )
@@ -2243,6 +2263,7 @@ function versionsOf(jobId) {
         setSaveState('')
       }
       const [tab, setTab] = React.useState('plan')
+      const [updateOpen, setUpdateOpen] = React.useState(false)
       const [pluginUpdateLocal, setPluginUpdateLocal] = React.useState(null)
       const [pluginUpdateCheck, setPluginUpdateCheck] = React.useState(null)
       const [pluginUpdateNote, setPluginUpdateNote] = React.useState('')
@@ -2251,9 +2272,9 @@ function versionsOf(jobId) {
       const pluginUpdateLocalInFlight = React.useRef(false)
       const pluginUpdatePendingRef = React.useRef('')
       const pluginUpdateView = React.useRef(0)
-      const pluginUpdateTabRef = React.useRef(tab)
+      const pluginUpdateTabRef = React.useRef(updateOpen)
       const pluginUpdateMounted = React.useRef(true)
-      pluginUpdateTabRef.current = tab
+      pluginUpdateTabRef.current = updateOpen
       const [note, setNote] = React.useState('')
       // 正文图片显示大小：输入过程只改草稿（绝不边输边发请求），点「保存」才发一次 /config。
       // null = 跟随已保存的配置；保存成功后回到 null，输入框显示服务端确认过的值。
@@ -2283,18 +2304,28 @@ function versionsOf(jobId) {
       // 从卡导入：卡列表 + 当前选中的卡
       const [importCards, setImportCards] = React.useState([])
       const [importCard, setImportCard] = React.useState('')
+      // 正在玩的卡（cards/x.json）；人物库默认只看这张卡
+      const [currentCardPath, setCurrentCardPath] = React.useState('')
+      // 人物库按卡筛选：'' = 跟随当前卡，'all' = 全部，'__unbound' = 只看未绑定，否则是卡路径
+      const [peopleCardFilter, setPeopleCardFilter] = React.useState('')
+      // 导入预览：{ card, cardName, items: [{ action, person, pick }] }
+      const [importPreview, setImportPreview] = React.useState(null)
+      const [peopleOverviewOpen, setPeopleOverviewOpen] = React.useState(false)
+      const [peopleTidyOpen, setPeopleTidyOpen] = React.useState(false)
       React.useEffect(() => {
         let alive = true
         ;(async () => {
           try {
-            const r = await post('/cards', {})
+            const r = await post('/cards', { sessionId: String(lastSessionId || '') })
             if (!alive) return
             const list = (r?.cards || []).map(item => ({
               path: item.path,
               label: item.title || item.name,
             }))
             setImportCards(list)
-            setImportCard(current => current || (list[0]?.path ?? ''))
+            const current = typeof r?.current === 'string' && list.some(item => item.path === r.current) ? r.current : ''
+            setCurrentCardPath(current)
+            setImportCard(existing => existing || current || (list[0]?.path ?? ''))
           } catch {}
         })()
         return () => { alive = false }
@@ -2321,12 +2352,17 @@ function versionsOf(jobId) {
       const [designDone, setDesignDone] = React.useState('')
       // 用稳定 id 保存改进草稿；删除前面的角色不会让草稿移到另一位身上。
       const [improveDraft, setImproveDraft] = React.useState({})
+      // 从别的角色复制服装：{ target: 目标角色 id, source: 来源角色 id, picked: 选中的服装 id }
+      const [outfitCopy, setOutfitCopy] = React.useState({ target: '', source: '', picked: [] })
       // 正在跑的改进任务（按角色 id 去重，不妨碍连续生成别的）
       const improveInFlight = React.useRef({})
       // 保存状态：'' 空闲 / 'saving' / 'saved' / 'failed:原因'
       const [saveState, setSaveState] = React.useState('')
       // 历史图库
       const [historyJobs, setHistoryJobs] = React.useState([])
+      const [legacyImages, setLegacyImages] = React.useState([])
+      const [legacyViewer, setLegacyViewer] = React.useState(null)
+      const [gameNames, setGameNames] = React.useState({})
       const [historyNote, setHistoryNote] = React.useState('')
       // 历史图的重载信号：切 tab 与点「刷新」都靠它真正重跑一次拉取。
       // 原来「刷新」是 setTab('plan') + setTimeout(setTab('gallery'))，依赖 [tab] 时
@@ -2405,14 +2441,14 @@ function versionsOf(jobId) {
       const channelTestsInFlight = React.useRef({})
       React.useEffect(() => {
         const view = ++pluginUpdateView.current
-        if (tab === 'plugin-update' && !pluginUpdateLocalAttempted.current) {
+        if (updateOpen && !pluginUpdateLocalAttempted.current) {
           pluginUpdateLocalAttempted.current = true
           void loadPluginUpdateLocal()
         }
         return () => {
           if (pluginUpdateView.current === view) pluginUpdateView.current += 1
         }
-      }, [tab])
+      }, [updateOpen])
       React.useEffect(() => {
         pluginUpdateMounted.current = true
         return () => { pluginUpdateMounted.current = false; pluginUpdateView.current += 1 }
@@ -2426,6 +2462,21 @@ function versionsOf(jobId) {
         }, 3000)
         return () => clearInterval(timer)
       }, [])
+      // 画廊也列出 Tavern 原生生图画过的旧图（tavernUi 第 4 版起提供，只读）。
+      React.useEffect(() => {
+        if (tab !== 'gallery' || typeof tavernUiService?.listIllustrations !== 'function') return undefined
+        let alive = true
+        tavernUiService.listIllustrations().then(items => { if (alive) setLegacyImages(Array.isArray(items) ? items : []) }, () => { if (alive) setLegacyImages([]) })
+        return () => { alive = false }
+      }, [tab, historyTick])
+      // 画廊按局分组：用 tavernUi.getGames 查各局名称。
+      const galleryGameIds = tab === 'gallery' ? [...new Set(historyJobs.map(job => job.gameId).concat(legacyImages.map(item => item.gameId)).filter(Boolean))].sort().join(',') : ''
+      React.useEffect(() => {
+        if (!galleryGameIds || typeof tavernUiService?.getGames !== 'function') return undefined
+        let alive = true
+        tavernUiService.getGames(galleryGameIds.split(',')).then(games => { if (alive) setGameNames(games || {}) }, () => {})
+        return () => { alive = false }
+      }, [galleryGameIds])
       React.useEffect(() => {
         if (tab !== 'gallery') return undefined
         let alive = true
@@ -2476,7 +2527,7 @@ function versionsOf(jobId) {
         const view = pluginUpdateView.current
         try {
           const status = await jsonFetch(BASE + '/plugin-update')
-          if (view !== pluginUpdateView.current || pluginUpdateTabRef.current !== 'plugin-update') return
+          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
           setPluginUpdateLocal(status)
           setPluginUpdateNote(status?.supported === false
             ? (status.reason || '当前安装方式暂不支持自动更新。')
@@ -2484,7 +2535,7 @@ function versionsOf(jobId) {
               ? '插件需要完整重启 DSH 后生效。'
               : status?.directoryMigrationRequired ? status.directoryMigrationMessage : '')
         } catch (error) {
-          if (view !== pluginUpdateView.current || pluginUpdateTabRef.current !== 'plugin-update') return
+          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
           setPluginUpdateNote('读取本地插件状态失败：' + (error?.message ?? error))
         } finally {
           pluginUpdateLocalInFlight.current = false
@@ -2502,7 +2553,7 @@ function versionsOf(jobId) {
         const view = pluginUpdateView.current
         try {
           const status = await post('/plugin-update/check', {})
-          if (view !== pluginUpdateView.current || pluginUpdateTabRef.current !== 'plugin-update') return
+          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
           setPluginUpdateCheck(status)
           mergePluginUpdateLocalStatus(status)
           const supported = status?.supported ?? pluginUpdateLocal?.supported
@@ -2519,7 +2570,7 @@ function versionsOf(jobId) {
                     ? (status?.canUpdate ? '发现可用更新。' : (status?.reason || '发现新版本，但当前无法自动更新。'))
                     : '当前已是最新版本。')
         } catch (error) {
-          if (view !== pluginUpdateView.current || pluginUpdateTabRef.current !== 'plugin-update') return
+          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
           setPluginUpdateNote('检查更新失败：' + (error?.message ?? error))
         } finally {
           if (pluginUpdatePendingRef.current === 'check') {
@@ -2548,7 +2599,7 @@ function versionsOf(jobId) {
             ? status.message
             : [status?.message, '插件更新完成，请完整重启 DSH 后生效。'].filter(Boolean).join(' '))
         } catch (error) {
-          if (view !== pluginUpdateView.current || pluginUpdateTabRef.current !== 'plugin-update') return
+          if (view !== pluginUpdateView.current || !pluginUpdateTabRef.current) return
           setPluginUpdateNote('更新插件失败：' + (error?.message ?? error))
         } finally {
           if (pluginUpdatePendingRef.current === 'apply') {
@@ -2564,6 +2615,7 @@ function versionsOf(jobId) {
           try {
             const r = await post('/config', { config: patch })
             receiveState(r.state, revision)
+            try { window.dispatchEvent(new CustomEvent('dsh-tavern-image:config', { detail: { imageEnabled: r.state?.config?.imageEnabled } })) } catch {}
             setNote('已保存')
             return r
           } catch (e) { setNote('保存失败：' + (e && e.message ? e.message : e)); return null }
@@ -2592,70 +2644,10 @@ function versionsOf(jobId) {
       const workflows = data.workflows || []
       const effective = config.plannerEffective || {}
 
-      // ---- 顶部状态 ----
-      // ---- 顶部状态 ----
+      // ---- 当前渠道 ----
       const imageBackend = String(config.imageBackend || 'comfyui')
       const providers = Array.isArray(data.imageProviders) ? data.imageProviders : []
       const selectedChannel = (Array.isArray(config.imageChannels) ? config.imageChannels : []).find(channel => channel.id === config.activeImageChannel && channel.provider === imageBackend)
-      const comfyOnline = imageBackend === 'comfyui' && Boolean(data.comfy && data.comfy.ok)
-      const externalStatus = selectedChannel ? channelTestStatuses[selectedChannel.id] : null
-      const externalConnected = Boolean(externalStatus?.ok && externalStatus.status === 'reachable')
-      const backendLabel = imageBackend === 'comfyui'
-        ? 'ComfyUI'
-        : ((providers.find(item => item.id === imageBackend) || {}).label || imageBackend)
-      const head = h('div', { style: S.card },
-        h('div', { style: { fontSize: '14px', fontWeight: 600, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
-          h('span', { style: imageBackend === 'comfyui' ? S.badge(comfyOnline) : Object.assign({}, S.badge(externalConnected), (!externalStatus || externalStatus.status === 'configured') ? { background: '#8491a2' } : {}) }),
-          h('span', null, imageBackend === 'comfyui'
-            ? (comfyOnline ? ('ComfyUI 在线' + (data.comfy.version ? ' ' + data.comfy.version : '') + (data.comfy.device ? '　' + data.comfy.device : '')) : ('ComfyUI 没开' + (data.comfy && data.comfy.error ? '：' + data.comfy.error : '')))
-            : (backendLabel + (selectedChannel ? ' · ' + selectedChannel.name : ' · 尚未选择渠道') + (externalStatus?.checking ? ' · 检测中…' : externalConnected ? ' · 连接可用' : externalStatus?.status === 'configured' ? ' · 已配置，尚未验证' : externalStatus ? ' · 连接失败' : selectedChannel ? ' · 已配置，尚未验证' : ''))),
-          imageBackend === 'comfyui' ? h('button', {
-            style: { fontSize: '11px', padding: '3px 10px', borderRadius: '7px', border: '1px solid rgba(150,170,200,.45)', background: 'transparent', color: '#9aa3b2', cursor: 'pointer' },
-            onClick: loadComfyStatus,
-          }, comfyStatus?.checking ? '检测中…' : '测试连接') : null,
-          imageBackend === 'comfyui' && comfyStatus && !comfyStatus.checking ? h('span', { style: { fontSize: '11px', color: comfyStatus.ok ? '#8bd48b' : '#f2686b' } },
-            comfyStatus.ok ? ('✓ ' + (comfyStatus.ms || 0) + 'ms') : ('✗ ' + String(comfyStatus.error || '').slice(0, 60))) : null,
-        ),
-        imageBackend === 'comfyui' ? h('div', { style: { fontSize: '12px', color: '#9aa3b2' } },
-          '当前画风：' + (config.comfyMode === 'simple'
-            ? ('简单模式 · ' + ({ checkpoint: 'Checkpoint（SD / SDXL）', flux: 'Flux', anima: 'Anima' }[config.comfySimple?.template] || 'Checkpoint') + ' · ' + (config.comfySimple?.template === 'checkpoint' ? (config.comfySimple?.checkpoint || '未选模型') : (config.comfySimple?.unet || '未选模型')))
-            : ((workflows.find(w => w.id === config.defaultWorkflow) || {}).label || '（没选）'))) : null,
-        h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginTop: '4px' } },
-          config.plannerEnabled ? ('规划模型：' + effective.provider + ' / ' + effective.model + (effective.fromTavern ? '（跟随 Tavern）' : '')) : '（规划已关）',
-        ),
-        note ? h('div', { style: { fontSize: '12px', marginTop: '6px', color: '#6aa8ff' } }, note) : null,
-      )
-
-      // ---- 手动生图（安全版：只读写自己的数据，不接管宿主渲染）----
-      function ManualCard() {
-        const [busy, setBusy] = React.useState(false)
-        const [note, setNote] = React.useState('')
-        async function run() {
-          if (busy) return
-          setBusy(true)
-          setNote('正在按最新一条回复规划…')
-          try {
-            const r = await post('/plan', { sessionId: lastSessionId, manual: true })
-            const ids = (r.plans || []).map(p => p.jobId).filter(Boolean)
-            if (!ids.length) { setNote('没有产出画面：' + (r.error || '模型没返回 <image> 块')); return }
-            setNote('已提交 ' + ids.length + ' 张，正在画…')
-            if (typeof openImageOverlay === 'function') openImageOverlay({ open: true, jobIds: ids, note: '本轮 ' + ids.length + ' 张', working: false })
-          } catch (error) {
-            setNote('失败：' + (error && error.message ? error.message : error))
-          } finally {
-            setBusy(false)
-          }
-        }
-        return h('div', { style: S.card },
-          h('div', { style: { fontSize: '13px', marginBottom: '4px' } }, '手动生图'),
-          h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '8px' } }, '按当前会话最新一条回复的正文生成插图。会弹出全屏看图。'),
-          h('div', { style: S.row },
-            h('button', { style: Object.assign({}, buttonStyle, { padding: '5px 16px', fontSize: '13px' }), disabled: busy, onClick: run },
-              busy ? '🎨 生成中…' : '🎨 给最新一条回复生图'),
-            note ? h('span', { style: { fontSize: '12px', color: note.startsWith('失败') || note.startsWith('没有') ? '#f2686b' : '#9aa3b2' } }, note) : null,
-          ),
-        )
-      }
 
       // ---- 后台任务（正在跑什么、能不能取消）----
       function taskPanel() {
@@ -2667,16 +2659,16 @@ function versionsOf(jobId) {
           const label = t.kind + '：' + t.label
           if (t.state === 'running') {
             return h('div', { key: t.id, style: { fontSize: '12px', margin: '3px 0' } },
-              h('span', { style: { color: '#6aa8ff' } }, '● ' + label + '（后台进行中，' + seconds + 's）'),
+              h('span', { style: { color: 'var(--dsw-alias-brand-primary)' } }, '● ' + label + '（后台进行中，' + seconds + 's）'),
               h('button', { style: Object.assign({}, buttonStyle, { marginLeft: '8px', padding: '1px 9px', fontSize: '11px' }), onClick: async () => { await post('/cancel', { id: t.id }); refresh() } }, '取消'),
             )
           }
-          return h('div', { key: t.id, style: { fontSize: '12px', margin: '3px 0', color: '#9aa3b2' } },
+          return h('div', { key: t.id, style: { fontSize: '12px', margin: '3px 0', color: 'var(--dsw-alias-label-tertiary)' } },
             (t.state === 'done' ? '✓ ' : t.state === 'cancelled' ? '⊗ ' : '✗ ') + label + '　' + seconds + 's' + (t.error ? '　' + t.error : ''))
         })
         return h('div', { style: S.card },
           h('div', { style: { fontSize: '13px', marginBottom: '4px' } }, '后台任务' + (running.length ? '（' + running.length + ' 个在跑）' : '')),
-          h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '6px' } }, '规划、设计、看图都在后台跑，不占用前台写作；这里能看到进度，卡住可以取消。'),
+          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '6px' } }, '规划、设计、看图都在后台跑，不占用前台写作；这里能看到进度，卡住可以取消。'),
           rows,
         )
       }
@@ -2684,7 +2676,7 @@ function versionsOf(jobId) {
       // ---- 规划页 ----
       /** 生图后端（ComfyUI 地址与鉴权）—— 标签在上、控件全宽。 */
       function ComfyBackendCard() {
-        const optStyle = { color: '#12161c', background: '#e9eef6' }
+        const optStyle = {}
         const providerOptions = providers.length ? providers : [
           ['novelai', 'NovelAI'], ['openai', 'OpenAI 兼容'], ['gemini', 'Gemini'], ['gemini-chat', 'Gemini Chat'],
           ['grok', 'Grok'], ['seedream', 'Seedream'], ['qwen', 'Qwen'], ['sdwebui', 'Stable Diffusion WebUI'],
@@ -2694,9 +2686,9 @@ function versionsOf(jobId) {
         const channel = selectedChannel
         const channelDraft = channel ? (channelSecretDrafts[channel.id] || { apiKey: '', password: '' }) : { apiKey: '', password: '' }
         const localFields = channel ? (channelDraft.fields || channel) : {}
-        const full = (extra) => Object.assign({}, S.input, { width: '100%', boxSizing: 'border-box', colorScheme: 'dark' }, extra || {})
-        const label = (text, hint) => h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '5px' } },
-          text, hint ? h('span', { style: { color: '#9aa3b2', marginLeft: '6px' } }, hint) : null)
+        const full = (extra) => Object.assign({}, S.input, { width: '100%', boxSizing: 'border-box' }, extra || {})
+        const label = (text, hint) => h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '5px' } },
+          text, hint ? h('span', { style: { color: 'var(--dsw-alias-label-tertiary)', marginLeft: '6px' } }, hint) : null)
         const setCfg = (patch) => setData(current => Object.assign({}, current, { config: Object.assign({}, current?.config || {}, patch) }))
         const nextId = (provider) => provider + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7)
         const defaultChannel = provider => {
@@ -2806,7 +2798,8 @@ function versionsOf(jobId) {
               h('option', { key: '__custom__', value: '__custom__', style: optStyle }, '自定义 / 未列出的模型 ID…')),
             known ? null : h('input', { 'aria-label': '自定义模型 ID', type: 'text', value: current, placeholder: '填 NovelAI 模型 ID，例如 nai-diffusion-4-5-full；留空 = 用默认 V4.5 Full', style: Object.assign({}, full(), { marginTop: '6px' }), onChange: e => editChannel({ model: e.target.value }) }))
         })() : null
-        const generatePathPlaceholder = ({ novelai: '/ai/generate-image', openai: '/images/generations', 'gemini-chat': '/chat/completions', grok: '/images/generations', seedream: '/images/generations', qwen: '/services/aigc/multimodal-generation/generation', sdwebui: '/sdapi/v1/txt2img' })[backend]
+        const naiChat = backend === 'novelai' && storedOption('protocol') === 'chat'
+        const generatePathPlaceholder = ({ novelai: naiChat ? '/v1/chat/completions' : '/ai/generate-image', openai: '/images/generations', 'gemini-chat': '/chat/completions', grok: '/images/generations', seedream: '/images/generations', qwen: '/services/aigc/multimodal-generation/generation', sdwebui: '/sdapi/v1/txt2img' })[backend]
         const authMode = String(config.comfyAuthMode ?? 'none')
         const saveComfy = async () => {
           const patch = {
@@ -2819,20 +2812,35 @@ function versionsOf(jobId) {
           if (saved) setComfySecretDrafts({ token: '', pass: '' })
           return saved
         }
+        // 先分「在线服务 / 本地部署」，再选具体服务商：本地程序要自己开着，在线服务要 Key，填的东西不一样。
+        const LOCAL_PROVIDERS = ['comfyui', 'sdwebui']
+        const isLocal = LOCAL_PROVIDERS.includes(backend)
+        const onlineOptions = providerOptions.filter(item => !LOCAL_PROVIDERS.includes(item.id))
+        const localOptions = [{ id: 'comfyui', label: 'ComfyUI' }].concat(providerOptions.filter(item => item.id === 'sdwebui'))
+        const chooseProvider = provider => {
+          if (provider === 'comfyui') { save({ imageBackend: provider }); setCfg({ imageBackend: provider }); return }
+          let selected = channels.find(item => item.provider === provider)
+          let next = channels
+          if (!selected) { selected = defaultChannel(provider); next = channels.concat(selected) }
+          persistChannelSelection(next, provider, selected.id)
+        }
+        const chooseKind = local => {
+          if (local === isLocal) return
+          if (local) { chooseProvider('comfyui'); return }
+          const used = onlineOptions.find(item => channels.some(channel => channel.provider === item.id))
+          if (used || onlineOptions[0]) chooseProvider((used || onlineOptions[0]).id)
+        }
+        const kindOptions = isLocal ? localOptions : onlineOptions
         return h('div', { style: S.card },
-          h('div', { style: { fontSize: '13px', marginBottom: '10px' } }, '生图后端'),
+          h('div', { style: Object.assign({}, S.row, { margin: '0 0 12px' }) },
+            h('button', { type: 'button', 'aria-pressed': !isLocal, style: S.tab(!isLocal), onClick: () => chooseKind(false) }, '在线服务'),
+            h('button', { type: 'button', 'aria-pressed': isLocal, style: S.tab(isLocal), onClick: () => chooseKind(true) }, '本地部署'),
+            h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, isLocal ? '在自己电脑上运行的出图程序，需要先把它开起来' : '填服务商的 API Key 即可，按张计费'),
+          ),
           h('div', { style: { marginBottom: '12px' } },
-            label('提供商'),
-            h('select', { 'aria-label': '生图提供商', value: backend, style: full(), onChange: e => {
-              const provider = e.target.value
-              if (provider === 'comfyui') { save({ imageBackend: provider }); setCfg({ imageBackend: provider }); return }
-              let selected = channels.find(item => item.provider === provider)
-              let next = channels
-              if (!selected) { selected = defaultChannel(provider); next = channels.concat(selected) }
-              persistChannelSelection(next, provider, selected.id)
-            } },
-              h('option', { value: 'comfyui', style: optStyle }, 'ComfyUI'),
-              providerOptions.map(item => h('option', { key: item.id, value: item.id, style: optStyle }, item.label + (item.id !== item.label ? '（' + item.id + '）' : ''))),
+            label(isLocal ? '本地程序' : '服务商'),
+            h('select', { 'aria-label': '生图提供商', value: backend, style: full(), onChange: e => chooseProvider(e.target.value) },
+              kindOptions.map(item => h('option', { key: item.id, value: item.id, style: optStyle }, item.label)),
             ),
           ),
           backend === 'comfyui' ? h('div', null,
@@ -2867,15 +2875,15 @@ function versionsOf(jobId) {
               const r = await post('/comfy-test', { url: saved.state?.config?.comfyUrl || config.comfyUrl || '' }).catch(e => ({ ok: false, error: String(e?.message ?? e) }))
               setComfyStatus(r)
             } }, comfyStatus?.checking ? '测试中…' : '测试连接与鉴权'),
-            comfyStatus?.checking ? h('span', { style: { fontSize: '12px', color: '#9aa3b2', marginLeft: '10px' } }, '正在连接…') : null,
-            comfyStatus && !comfyStatus.checking ? h('span', { style: { fontSize: '12px', color: comfyStatus.ok ? '#8bd48b' : '#f2686b', marginLeft: '10px' } }, comfyStatus.ok ? ('● 在线' + (comfyStatus.version ? ' ' + comfyStatus.version : '') + (comfyStatus.device ? '　' + comfyStatus.device : '') + (comfyStatus.vram ? '　' + comfyStatus.vram : '') + '　✓ ' + (comfyStatus.ms || 0) + 'ms') : ('● 离线：' + String(comfyStatus.error || '未知原因'))) : null,
+            comfyStatus?.checking ? h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginLeft: '10px' } }, '正在连接…') : null,
+            comfyStatus && !comfyStatus.checking ? h('span', { style: { fontSize: '12px', color: comfyStatus.ok ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-error-primary)', marginLeft: '10px' } }, comfyStatus.ok ? ('● 在线' + (comfyStatus.version ? ' ' + comfyStatus.version : '') + (comfyStatus.device ? '　' + comfyStatus.device : '') + (comfyStatus.vram ? '　' + comfyStatus.vram : '') + '　✓ ' + (comfyStatus.ms || 0) + 'ms') : ('● 离线：' + String(comfyStatus.error || '未知原因'))) : null,
           ) : channel ? h('div', null,
             h('div', { style: S.row },
               h('select', { 'aria-label': '生图渠道', value: channel.id, style: Object.assign({}, full(), { flex: 1, minWidth: '180px' }), onChange: e => { setCfg({ activeImageChannel: e.target.value }); save({ activeImageChannel: e.target.value }) } },
                 channels.filter(item => item.provider === backend).map(item => h('option', { key: item.id, value: item.id, style: optStyle }, item.name))),
               h('button', { style: buttonStyle, onClick: () => { const created = defaultChannel(backend); persistChannelSelection(channels.concat(created), backend, created.id) } }, '新增渠道'),
               h('button', { style: buttonStyle, onClick: () => { const created = Object.assign({}, channel, localFields, { id: nextId(backend), name: localFields.name + ' 副本', hasApiKey: false, hasPassword: false }); delete created.apiKey; delete created.password; persistChannelSelection(channels.concat(created), backend, created.id) } }, '复制渠道'),
-              h('button', { style: Object.assign({}, buttonStyle, { color: '#f28b8b' }), onClick: () => {
+              h('button', { style: Object.assign({}, buttonStyle, { color: 'var(--dsw-alias-state-error-primary)' }), onClick: () => {
                 if (!confirm('删除渠道「' + channel.name + '」？已保存的密钥也会删除。')) return
                 const next = channels.filter(item => item.id !== channel.id)
                 const fallback = next.find(item => item.provider === backend)
@@ -2885,6 +2893,7 @@ function versionsOf(jobId) {
             ),
             field('name', '渠道名称', '例如：个人 API / 公司中转'),
             field('baseUrl', 'API 根地址', 'https://api.example.com/v1'),
+            backend === 'novelai' ? selectOptionField('protocol', '接口格式', [['native', '官方格式（NovelAI 官方或同协议中转）'], ['chat', '对话格式（chat/completions 中转站）']], 'native') : null,
             backend === 'novelai' ? naiModelField : modelInput,
             h('div', { style: { marginBottom: '10px' } }, label('鉴权方式'), h('select', { 'aria-label': '鉴权方式', value: localFields.authMode || 'bearer', style: full(), onChange: e => editChannel({ authMode: e.target.value }) },
               h('option', { value: 'bearer', style: optStyle }, 'Bearer API Key'), h('option', { value: 'none', style: optStyle }, '无需鉴权'), h('option', { value: 'basic', style: optStyle }, 'Basic 用户名 / 密码'))),
@@ -2903,12 +2912,12 @@ function versionsOf(jobId) {
               selectOptionField('sampler', '采样器', NAI_SAMPLER_OPTIONS, 'k_euler_ancestral'),
               selectOptionField('noiseSchedule', '噪点表（Noise Schedule）', NAI_NOISE_OPTIONS, 'karras')) : null,
             backend === 'novelai' ? h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(128px,1fr))', gap: '10px 12px' } },
-              optionField('steps', '步数', '28', 'number'),
+              naiChat ? null : optionField('steps', '步数', '28', 'number'),
               optionField('cfg', 'CFG', '5', 'number'),
               h('div', { style: { marginBottom: '10px' } }, label('CFG Rescale'), h('input', { 'aria-label': 'CFG Rescale', type: 'number', step: '0.01', min: '0', max: '1', value: String((localFields.options || {}).cfgRescale ?? 0), placeholder: '0 ~ 1，0 = 关', style: full(), onChange: e => updateOption('cfgRescale', Number(e.target.value)) })),
-              h('div', { style: { marginBottom: '10px' } }, label('Uncond Scale'), h('input', { 'aria-label': 'Uncond Scale', type: 'number', step: '0.1', min: '0', value: String((localFields.options || {}).uncondScale ?? 0), placeholder: '0 = 不改动', style: full(), onChange: e => updateOption('uncondScale', Number(e.target.value)) })),
-              h('div', { style: { marginBottom: '10px' } }, label('Skip CFG Sigma'), h('input', { 'aria-label': 'Skip CFG Above Sigma', type: 'number', step: '0.1', min: '0', value: String((localFields.options || {}).skipCfgAboveSigma ?? 0), placeholder: '0 = 不改动，常用 19', style: full(), onChange: e => updateOption('skipCfgAboveSigma', Number(e.target.value)) }))) : null,
-            backend === 'novelai' ? h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px 12px' } },
+              naiChat ? null : h('div', { style: { marginBottom: '10px' } }, label('Uncond Scale'), h('input', { 'aria-label': 'Uncond Scale', type: 'number', step: '0.1', min: '0', value: String((localFields.options || {}).uncondScale ?? 0), placeholder: '0 = 不改动', style: full(), onChange: e => updateOption('uncondScale', Number(e.target.value)) })),
+              naiChat ? null : h('div', { style: { marginBottom: '10px' } }, label('Skip CFG Sigma'), h('input', { 'aria-label': 'Skip CFG Above Sigma', type: 'number', step: '0.1', min: '0', value: String((localFields.options || {}).skipCfgAboveSigma ?? 0), placeholder: '0 = 不改动，常用 19', style: full(), onChange: e => updateOption('skipCfgAboveSigma', Number(e.target.value)) }))) : null,
+            backend === 'novelai' && !naiChat ? h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px 12px' } },
               h('div', { style: { marginBottom: '10px' } }, label('官方负面预设（ucPreset）'),
                 h('select', { 'aria-label': '官方负面预设', value: String((localFields.options || {}).ucPreset ?? 3), style: full(), onChange: e => updateOption('ucPreset', Number(e.target.value)) },
                   h('option', { value: '0', style: optStyle }, '0 · 强（Heavy）'),
@@ -2929,7 +2938,7 @@ function versionsOf(jobId) {
               sizeField('sizeWidth', '宽（像素）', '如 832', legacySize.width),
               sizeField('sizeHeight', '高（像素）', '如 1216', legacySize.height),
               (sizeValue('sizeWidth', legacySize.width) && sizeValue('sizeHeight', legacySize.height)) ? null
-                : h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginBottom: '10px', alignSelf: 'end', paddingBottom: '8px' } }, '宽高都填才覆盖；留空跟随规划给的分辨率')) : null,
+                : h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px', alignSelf: 'end', paddingBottom: '8px' } }, '宽高都填才覆盖；留空跟随规划给的分辨率')) : null,
             ['openai', 'sdwebui', 'qwen'].includes(backend) ? optionField('size', '尺寸覆盖（可选）', '例如：1024x1536') : null,
             backend === 'seedream' ? optionField('size', '输出尺寸（可选）', '1K、1.5K、2K 或 2048x2048') : null,
             backend === 'gemini' ? optionField('imageSize', '输出分辨率（可选）', '1K、2K 或 4K') : null,
@@ -2963,17 +2972,17 @@ function versionsOf(jobId) {
                   else setChannelTestStatuses(current => { const statuses = Object.assign({}, current); delete statuses[channel.id]; return statuses })
                 } finally { delete channelTestsInFlight.current[channel.id] }
               } }, channelTestStatuses[channel.id]?.checking ? '测试中…' : '保存并测试连接'),
-              h('span', { role: 'status', 'aria-live': 'polite', style: { fontSize: '12px', color: channelTestStatuses[channel.id]?.status === 'reachable' && channelTestStatuses[channel.id]?.ok ? '#8bd48b' : channelTestStatuses[channel.id]?.status === 'configured' ? '#9aa3b2' : channelTestStatuses[channel.id] ? '#f2686b' : '#9aa3b2' } },
+              h('span', { role: 'status', 'aria-live': 'polite', style: { fontSize: '12px', color: channelTestStatuses[channel.id]?.status === 'reachable' && channelTestStatuses[channel.id]?.ok ? 'var(--dsw-alias-state-success-primary)' : channelTestStatuses[channel.id]?.status === 'configured' ? 'var(--dsw-alias-label-tertiary)' : channelTestStatuses[channel.id] ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-tertiary)' } },
                 channelTestStatuses[channel.id]?.checking ? '正在探测渠道…' : channelTestStatuses[channel.id]?.status === 'reachable' && channelTestStatuses[channel.id]?.ok ? ('连接可用' + (channelTestStatuses[channel.id].message ? '：' + channelTestStatuses[channel.id].message : '')) : channelTestStatuses[channel.id]?.status === 'configured' ? ('已配置，尚未验证：' + (channelTestStatuses[channel.id].message || '此服务没有可安全探测的接口。')) : channelTestStatuses[channel.id] ? ('无法连接：' + (channelTestStatuses[channel.id].message || channelTestStatuses[channel.id].error || '检查地址与鉴权')) : (channel.hasApiKey || channel.hasPassword ? '已配置，尚未验证' : '填写地址和鉴权后保存并测试')),
             ),
-            h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginTop: '8px', lineHeight: 1.55 } },
-              backend === 'novelai' ? 'NovelAI 使用 API Key，不需要账户 OAuth 登录；密钥可从官方账户获取。' : backend === 'openai' ? '支持 OpenAI 图片 API 和兼容中转；建议模型 ID 来自服务端模型列表，兼容中转可修改生成路径。' : backend === 'grok' ? 'Grok 当前由服务端模型决定尺寸和比例；插件不会发送尺寸覆盖参数。' : backend === 'qwen' ? '百炼 API 根地址必须匹配账号所在地域和控制台提供的工作空间地址；请从平台控制台复制完整区域端点。' : '可填写服务商或自建中转的完整 API 根地址；测试只检查连接与模型信息，不会付费生成图片。复制渠道会复制参数，但需要重新填写密钥。'),
+            h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '8px', lineHeight: 1.55 } },
+              backend === 'novelai' ? (naiChat ? '对话格式用于把 NovelAI 包成 chat/completions 的中转站：地址填中转站根地址，模型选 NovelAI 模型，采样器会自动拼进模型名。' : 'NovelAI 使用 API Key，不需要账户 OAuth 登录；密钥可从官方账户获取。') : backend === 'openai' ? '支持 OpenAI 图片 API 和兼容中转；建议模型 ID 来自服务端模型列表，兼容中转可修改生成路径。' : backend === 'grok' ? 'Grok 当前由服务端模型决定尺寸和比例；插件不会发送尺寸覆盖参数。' : backend === 'qwen' ? '百炼 API 根地址必须匹配账号所在地域和控制台提供的工作空间地址；请从平台控制台复制完整区域端点。' : '可填写服务商或自建中转的完整 API 根地址；测试只检查连接与模型信息，不会付费生成图片。复制渠道会复制参数，但需要重新填写密钥。'),
             h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px', flexWrap: 'wrap' } },
-              h('label', { style: { fontSize: '12px', color: '#b2bdcc' } }, '同时生成', h('input', { 'aria-label': '同时生成', type: 'number', min: 1, max: 4, value: Number(config.imageConcurrency || 2), style: Object.assign({}, S.input, { width: '70px', marginLeft: '8px' }), onChange: e => setCfg({ imageConcurrency: Math.max(1, Math.min(4, Number(e.target.value) || 1)) }) })),
+              h('label', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' } }, '同时生成', h('input', { 'aria-label': '同时生成', type: 'number', min: 1, max: 4, value: Number(config.imageConcurrency || 2), style: Object.assign({}, S.input, { width: '70px', marginLeft: '8px' }), onChange: e => setCfg({ imageConcurrency: Math.max(1, Math.min(4, Number(e.target.value) || 1)) }) })),
               h('button', { style: buttonStyle, onClick: () => save({ imageConcurrency: Math.max(1, Math.min(4, Number(config.imageConcurrency || 2))) }) }, '保存并发设置'),
-              h('span', { style: { fontSize: '11px', color: '#9aa3b2' } }, '1–4 个任务；并发提高速度，也会增加服务端额度消耗。'),
+              h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, '1–4 个任务；并发提高速度，也会增加服务端额度消耗。'),
             ),
-          ) : h('div', { style: { color: '#9aa3b2', fontSize: '12px' } }, '此提供商还没有渠道。'),
+          ) : h('div', { style: { color: 'var(--dsw-alias-label-tertiary)', fontSize: '12px' } }, '此提供商还没有渠道。'),
         )
       }
 
@@ -3000,13 +3009,13 @@ function versionsOf(jobId) {
          */
         // 只列两个**确定**的值：设置值和默认值。聊天区宽度因面板不同而变，放进来只会让人怀疑数字。
         const compareRows = [
-          { key: 'mine', label: '你设的宽度', width: previewWidth, color: '#8fb4ff', image: sampleSrc },
-          { key: 'default', label: '默认', width: IMAGE_WIDTH_LIMIT.fallback, color: '#6b7480', dashed: true },
+          { key: 'mine', label: '你设的宽度', width: previewWidth, color: 'var(--dsw-alias-brand-primary)', image: sampleSrc },
+          { key: 'default', label: '默认', width: IMAGE_WIDTH_LIMIT.fallback, color: 'var(--dsw-alias-label-tertiary)', dashed: true },
         ]
-        const rulerBg = 'repeating-linear-gradient(to right, rgba(120,140,170,.18) 0 1px, transparent 1px 100px)'
+        const rulerBg = 'repeating-linear-gradient(to right, color-mix(in srgb, var(--dsw-alias-label-tertiary) 18%, transparent) 0 1px, transparent 1px 100px)'
         const compareBar = row => h('div', { key: row.key, style: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px' } },
           h('div', { style: { flex: '0 0 auto', width: '74px', fontSize: '10px', color: row.color, lineHeight: 1.3 } }, row.label),
-          h('div', { style: { position: 'relative', flex: '1 1 auto', height: '42px', overflowX: 'auto', overflowY: 'hidden', borderRadius: '6px', background: '#12151b', border: '1px solid #262c36', backgroundImage: rulerBg } },
+          h('div', { style: { position: 'relative', flex: '1 1 auto', height: '42px', overflowX: 'auto', overflowY: 'hidden', borderRadius: '6px', background: 'var(--dsw-specific-input-major)', border: '1px solid var(--dsw-alias-border-l2)', backgroundImage: rulerBg } },
             h('div', {
               title: row.width + ' px',
               style: Object.assign({
@@ -3014,7 +3023,7 @@ function versionsOf(jobId) {
                 transition: 'width .12s ease-out', boxSizing: 'border-box',
               }, row.image
                 ? { border: '1px solid ' + row.color }
-                : (row.dashed ? { border: '1px dashed ' + row.color, background: 'rgba(120,140,170,.12)' } : { border: '1px solid ' + row.color, background: 'rgba(232,192,122,.14)' })),
+                : (row.dashed ? { border: '1px dashed ' + row.color, background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 12%, transparent)' } : { border: '1px solid ' + row.color, background: 'color-mix(in srgb, var(--dsw-alias-state-warning-primary) 14%, transparent)' })),
             },
               row.image ? h('img', { key: 'shot', src: row.image, alt: '插图', loading: 'lazy', decoding: 'async', style: { display: 'block', width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center' } }) : null,
             ),
@@ -3023,13 +3032,13 @@ function versionsOf(jobId) {
         )
         return h('div', { style: S.card },
           h('div', { style: { fontSize: '13px', fontWeight: 600, marginBottom: '6px' } }, '正文图片显示大小'),
-          h('div', { style: { fontSize: '12px', color: '#9aa3b2', lineHeight: 1.6 } },
+          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', lineHeight: 1.6 } },
             '正文里所有插件插图（已存在的和新生成的）统一按这个宽度显示，高度按原比例，窄屏不会溢出。',
             '只改显示大小：不重采样原图、不改生成分辨率，点开后的全屏大图也不受影响。',
             '拖动滑块时，正文里的插图会立刻跟着变 —— 看准了再保存。'),
           h('div', { style: { marginTop: '10px' } },
             compareRows.map(compareBar),
-            h('div', { style: { fontSize: '11px', color: '#8b93a1', marginTop: '7px', lineHeight: 1.6 } },
+            h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '7px', lineHeight: 1.6 } },
               '最大只到铺满屏幕，再大也不会超出；实际显示多宽以正文为准 —— 双击插图，控制条会给出「设定 X px · 实际 Y px」。'),
           ),
           h('div', { style: Object.assign({}, S.row, { marginTop: '10px' }) },
@@ -3037,7 +3046,7 @@ function versionsOf(jobId) {
               'aria-label': '正文图片显示宽度', type: 'range',
               min: String(IMAGE_WIDTH_LIMIT.min), max: String(IMAGE_WIDTH_LIMIT.max), step: '10',
               value: String(draftValue || IMAGE_WIDTH_LIMIT.fallback), disabled: busy,
-              style: { width: 'min(240px, 52vw)', accentColor: '#8fb4ff', cursor: 'pointer' },
+              style: { width: 'min(240px, 52vw)', accentColor: 'var(--dsw-alias-brand-primary)', cursor: 'pointer' },
               onChange: e => { setDisplayWidthNote(''); setDisplayWidthDraft(String(e.target.value)); applyImageWidth(e.target.value) },
             }),
             h('input', {
@@ -3047,16 +3056,16 @@ function versionsOf(jobId) {
               style: Object.assign({}, S.input, { width: '92px' }),
               onChange: e => { setDisplayWidthNote(''); setDisplayWidthDraft(e.target.value); applyImageWidth(e.target.value) },
             }),
-            h('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, draftValue ? draftValue + ' px' : '默认'),
+            h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, draftValue ? draftValue + ' px' : '默认'),
             h('button', { style: buttonStyle, disabled: busy || !valid || draftValue === saved, onClick: () => { void saveDisplayWidth() } }, busy ? '保存中…' : '保存'),
             dirty ? h('button', { style: buttonStyle, disabled: busy, onClick: () => { setDisplayWidthDraft(null); setDisplayWidthNote(''); applyImageWidth(saved) } }, '取消预览') : null,
             h('button', { style: buttonStyle, disabled: busy || !saved, onClick: () => { void saveDisplayWidth('') } }, '恢复默认'),
-            !valid ? h('span', { role: 'alert', style: { fontSize: '12px', color: '#f2686b' } }, '宽度只能是数字') : null,
+            !valid ? h('span', { role: 'alert', style: { fontSize: '12px', color: 'var(--dsw-alias-state-error-primary)' } }, '宽度只能是数字') : null,
             dirty
-              ? h('span', { role: 'status', 'aria-live': 'polite', style: { fontSize: '12px', color: '#e8c07a' } }, '预览中（未保存）：正文已临时按 ' + (draftValue ? draftValue + ' px' : '默认') + ' 显示')
-              : (displayWidthNote ? h('span', { role: 'status', 'aria-live': 'polite', style: { fontSize: '12px', color: /失败/.test(displayWidthNote) ? '#f2686b' : '#8bd48b' } }, displayWidthNote) : null),
+              ? h('span', { role: 'status', 'aria-live': 'polite', style: { fontSize: '12px', color: 'var(--dsw-alias-state-warning-primary)' } }, '预览中（未保存）：正文已临时按 ' + (draftValue ? draftValue + ' px' : '默认') + ' 显示')
+              : (displayWidthNote ? h('span', { role: 'status', 'aria-live': 'polite', style: { fontSize: '12px', color: /失败/.test(displayWidthNote) ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-success-primary)' } }, displayWidthNote) : null),
           ),
-          h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginTop: '6px' } },
+          h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '6px' } },
             '可填 ' + IMAGE_WIDTH_LIMIT.min + '–' + IMAGE_WIDTH_LIMIT.max + ' 像素；留空 = 默认。超出范围会自动收窄到区间内。',
             '保存后刷新或重启依然有效。拖完可以直接切回正文看效果，不满意点「取消预览」。'),
         )
@@ -3067,11 +3076,10 @@ function versionsOf(jobId) {
         const chosen = Array.isArray(config.plannerEntries) ? config.plannerEntries : []
         const active = new Set(chosen.length ? chosen : entries.filter(e => e.index <= 19 || e.index === 142).map(e => e.index))
         return h('div', null,
-          ComfyBackendCard(),
           h('div', { style: S.card },
             h('div', { style: S.row },
               h('label', { style: S.row },
-                h('input', { type: 'checkbox', checked: config.plannerEnabled !== false, onChange: e => save({ plannerEnabled: e.target.checked }) }),
+                h('input', { type: 'checkbox', disabled: config.imageEnabled === false, checked: config.plannerEnabled !== false, onChange: e => save({ plannerEnabled: e.target.checked }) }),
                 h('span', { style: { fontSize: '13px' } }, '每轮自动规划配图（前台只写正文）'),
               ),
             ),
@@ -3087,26 +3095,24 @@ function versionsOf(jobId) {
                 h('span', { style: { fontSize: '13px', opacity: Number(config.tavernApi?.apiVersion) < 2 ? .65 : 1 } }, Number(config.tavernApi?.apiVersion) < 2 ? '自动记录明确的永久外貌变化（需要 Tavern API v2）' : '自动记录明确的永久外貌变化'),
               ),
             ),
-            h('div', { style: S.row },
-              h('span', { style: S.label }, '一轮几张'),
-              h('input', { type: 'number', min: 1, max: 8, value: config.plannerCount || 3, style: Object.assign({}, S.input, { width: '78px' }), onChange: e => save({ plannerCount: Number(e.target.value) || 3 }) }),
-              h('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, '本地出图慢，建议 2-3'),
-            ),
-            h('div', { style: S.row },
-              h('span', { style: S.label }, '人物块'),
-              h('select', { value: config.traitMode || 'auto', style: S.input, onChange: e => save({ traitMode: e.target.value }) },
-                h('option', { value: 'auto', style: { color: '#12161c', background: '#e9eef6' } }, '自动（画面露才带露出版本）'),
-                h('option', { value: 'sfw', style: { color: '#12161c', background: '#e9eef6' } }, '只带常规版本'),
-                h('option', { value: 'all', style: { color: '#12161c', background: '#e9eef6' } }, '全都带上'),
-              ),
-            ),
+            h('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 2fr)', gap: '8px 12px', marginTop: '14px' } },
+              h('div', null,
+                h('div', { className: 'dti-field-label' }, '一轮几张', ['comfyui', 'sdwebui'].includes(imageBackend) ? h('small', null, '本地出图慢，建议 2–3') : null),
+                h('input', { 'aria-label': '一轮几张', type: 'number', min: 1, max: 8, value: config.plannerCount || 3, style: Object.assign({}, S.input, { width: '100%', boxSizing: 'border-box' }), onChange: e => save({ plannerCount: Number(e.target.value) || 3 }) })),
+              h('div', null,
+                h('div', { className: 'dti-field-label' }, '人物块'),
+                h('select', { 'aria-label': '人物块', value: config.traitMode || 'auto', style: Object.assign({}, S.input, { width: '100%', boxSizing: 'border-box' }), onChange: e => save({ traitMode: e.target.value }) },
+                  h('option', { value: 'auto' }, '自动（画面露才带露出版本）'),
+                  h('option', { value: 'sfw' }, '只带常规版本'),
+                  h('option', { value: 'all' }, '全都带上'),
+                ))),
             h(ModelPicker, {
               label: '规划模型', providerKey: 'plannerProvider', modelKey: 'plannerModel', effortKey: 'plannerEffort',
-              hint: '不选 = 跟随 Tavern 后台模型',
+              hint: '写每张图的画面和提示词；不选就跟随 Tavern 后台模型',
             }),
             h(ModelPicker, {
               label: '看图模型', providerKey: 'visionProvider', modelKey: 'visionModel', effortKey: 'visionEffort',
-              onlyVision: true, hint: '只列支持看图的模型；设计角色读参考图时用它',
+              onlyVision: true, hint: '设计角色时读参考图用，只列支持看图的模型',
             }),
           ),
           imageDisplayCard(),
@@ -3118,15 +3124,15 @@ function versionsOf(jobId) {
                 const on = all.filter(e => e.enabled !== false && String(e.content ?? '').trim()).length
                 return '世界书（' + all.length + ' 条，已启用 ' + on + ' 条）'
               })()),
-            h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '8px' } },
+            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } },
               '启用的常驻条目每轮发送；关键词条目仅在正文命中时发送，并按适用渠道筛选。旧条目默认常驻。触发方式和内容可在「世界书」标签页里改。'),
             h('div', { style: S.row },
               h('button', { style: buttonStyle, onClick: () => setTab('worldbook') }, '📖 去世界书里勾选 / 编辑'),
               h('button', { style: buttonStyle, onClick: () => { setTab('worldbook'); setWbImportOpen(true) } }, '📥 导入世界书'),
             ),
           ),
-          h('div', { style: S.card },
-            h('div', { style: { fontSize: '13px', marginBottom: '6px' } }, '试规划（贴一段正文，看 agent 产出）'),
+          h('details', { style: S.card },
+            h('summary', { style: { fontSize: '13px', cursor: 'pointer', color: 'var(--dsw-alias-label-secondary)' } }, '试规划（贴一段正文，看 agent 产出）'),
             h('textarea', { value: planText, onChange: e => setPlanText(e.target.value), placeholder: '把一段正文贴在这里…', style: Object.assign({}, S.input, { width: '100%', minHeight: '80px', fontFamily: 'inherit' }) }),
             h('div', { style: S.row },
               h('button', { style: buttonStyle, onClick: async () => {
@@ -3142,8 +3148,8 @@ function versionsOf(jobId) {
             ),
             planRows ? planRows.map((p, i) => h('div', { key: i, style: { marginTop: '8px', fontSize: '12px' } },
               h('div', { style: { fontWeight: 600 } }, (i + 1) + '. ' + (p.title || '(无标题)') + '　' + (p.sizeText || p.size || '')),
-              h('div', { style: { color: '#9aa3b2' } }, '插在这句之后：' + (p.mount || '（没给挂载句）')),
-              h('div', { style: { color: '#9aa3b2', wordBreak: 'break-all' } }, String(p.prompts || '').slice(0, 260)),
+              h('div', { style: { color: 'var(--dsw-alias-label-tertiary)' } }, '插在这句之后：' + (p.mount || '（没给挂载句）')),
+              h('div', { style: { color: 'var(--dsw-alias-label-tertiary)', wordBreak: 'break-all' } }, String(p.prompts || '').slice(0, 260)),
               p.jobId ? h('img', { src: BASE + '/jobs?id=' + encodeURIComponent(p.jobId) + '&image=1', style: { maxWidth: '300px', borderRadius: '8px', marginTop: '6px' } }) : null,
             )) : null,
           ),
@@ -3155,9 +3161,29 @@ function versionsOf(jobId) {
         const characters = (data.definitions && data.definitions.characters) || []
         const picked = characters.filter(character => peoplePicked[character.id])
         const search = peopleSearch.trim().toLocaleLowerCase()
-        const filteredCharacters = (search
-          ? characters.filter(character => [character.name, character.match, character.group].some(value => String(value || '').toLocaleLowerCase().includes(search)))
-          : characters).slice().sort((a, b) => {
+        // —— 按卡归类 ——
+        const bareCard = value => String(value || '').replace(/^.*[\\/]/, '').replace(/\.json$/i, '')
+        const cardTitle = path => (importCards.find(item => bareCard(item.path) === bareCard(path))?.label) || bareCard(path)
+        const boundTo = (person, path) => (person.cards || []).some(entry => bareCard(entry) === bareCard(path))
+        const cardFilter = peopleCardFilter || (currentCardPath ? currentCardPath : 'all')
+        const onFilter = person => cardFilter === 'all' ? true
+          : cardFilter === '__unbound' ? !(person.cards || []).length
+          : (!(person.cards || []).length || boundTo(person, cardFilter))
+        const sectionOf = person => {
+          const cards = person.cards || []
+          if (!cards.length) return '未绑定（所有卡通用）'
+          if (cardFilter !== 'all' && cardFilter !== '__unbound') return '「' + cardTitle(cardFilter) + '」的人物'
+          return cards.length === 1 ? '「' + cardTitle(cards[0]) + '」的人物' : '多张卡共用'
+        }
+        // 「绑定到当前卡」用的目标：筛选选中的卡，其次正在玩的卡
+        const bindTarget = cardFilter !== 'all' && cardFilter !== '__unbound' ? cardFilter : currentCardPath
+        const filteredCharacters = characters.filter(onFilter).filter(character => !search || [character.name, character.match, character.group].some(value => String(value || '').toLocaleLowerCase().includes(search)))
+          .slice().sort((a, b) => {
+            const sa = sectionOf(a), sb = sectionOf(b)
+            if (sa !== sb) {
+              const rank = name => name.startsWith('未绑定') ? 2 : name === '多张卡共用' ? 1 : 0
+              return (rank(sa) - rank(sb)) || sa.localeCompare(sb, 'zh-CN')
+            }
             const ga = String(a.group || '').trim()
             const gb = String(b.group || '').trim()
             if (ga !== gb) {
@@ -3200,8 +3226,8 @@ function versionsOf(jobId) {
 
         function batchPanel() {
           if (!peopleBatchOpen) return null
-          return h('div', { style: Object.assign({}, S.card, { margin: '8px 0 12px', background: 'rgba(106,168,255,.04)' }) },
-            h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '6px' } }, '选择要批量修改的角色（列表按上方搜索筛选；已选 ' + picked.length + ' 位，包含隐藏角色）'),
+          return h('div', { style: Object.assign({}, S.card, { margin: '8px 0 12px', background: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 4%, transparent)' }) },
+            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '6px' } }, '选择要批量修改的角色（列表按上方搜索筛选；已选 ' + picked.length + ' 位，包含隐藏角色）'),
             h('div', { style: S.row },
               h('button', { style: buttonStyle, disabled: !filteredCharacters.length, onClick: () => setPeoplePicked(current => Object.assign({}, current, Object.fromEntries(filteredCharacters.map(character => [character.id, true])))) }, '全选当前筛选'),
               h('button', { style: buttonStyle, onClick: () => setPeoplePicked({}) }, '清除选择'),
@@ -3210,7 +3236,7 @@ function versionsOf(jobId) {
               filteredCharacters.length ? filteredCharacters.map(character => h('label', { key: character.id, style: { display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px' } },
                 h('input', { type: 'checkbox', 'aria-label': '批量选择角色 ' + (character.name || '未命名'), checked: Boolean(peoplePicked[character.id]), onChange: event => { const checked = event.target.checked; setPeoplePicked(current => Object.assign({}, current, { [character.id]: checked })) } }),
                 character.name || '（未命名角色）',
-              )) : h('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, '没有匹配的角色')),
+              )) : h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '没有匹配的角色')),
             h('div', { style: S.row },
               h('span', { style: S.label }, '批量编辑'),
               h('select', { 'aria-label': '批量编辑字段', value: peopleBatchField, style: S.input, onChange: async event => {
@@ -3224,7 +3250,7 @@ function versionsOf(jobId) {
               } }, batchFields.map(([key, label]) => h('option', { key, value: key }, label))),
               peopleBatchField === 'enabled' ? null : h('select', { 'aria-label': '批量编辑方式', value: peopleBatchMode, style: S.input, onChange: event => setPeopleBatchMode(event.target.value) },
                 h('option', { value: 'replace' }, '覆盖'), h('option', { value: 'append' }, '追加')),
-              h('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, '只修改选中的 ' + picked.length + ' 位角色'),
+              h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '只修改选中的 ' + picked.length + ' 位角色'),
             ),
             peopleBatchField === 'enabled'
               ? h('select', { 'aria-label': '批量启用状态', value: peopleBatchValue === 'false' ? 'false' : 'true', style: S.input, onChange: event => setPeopleBatchValue(event.target.value) }, h('option', { value: 'true' }, '启用'), h('option', { value: 'false' }, '禁用'))
@@ -3232,15 +3258,15 @@ function versionsOf(jobId) {
                 ? h('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap', maxHeight: '180px', overflowY: 'auto' } },
                   cardList.length ? cardList.map(card => h('label', { key: card.path, style: { fontSize: '12px' } },
                     h('input', { type: 'checkbox', checked: peopleBatchCards.includes(card.path), onChange: event => { const checked = event.target.checked; setPeopleBatchCards(current => checked ? [...new Set([...current, card.path])] : current.filter(path => path !== card.path)) } }), ' ' + card.name))
-                    : h('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, '暂无卡片可选'),
+                    : h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '暂无卡片可选'),
                 )
                 : h('textarea', { 'aria-label': '批量编辑内容', value: peopleBatchValue, placeholder: '填写要应用到所选角色的内容', rows: 3, style: Object.assign({}, S.input, { width: '100%', boxSizing: 'border-box', fontFamily: 'inherit' }), onChange: event => setPeopleBatchValue(event.target.value) }),
             h('div', { style: S.row },
               h('button', { style: buttonStyle, disabled: !picked.length, onClick: applyBatch }, '应用到所选角色'),
-              h('button', { style: Object.assign({}, buttonStyle, { borderColor: 'rgba(242,104,107,.65)', color: '#f2686b' }), disabled: !picked.length, onClick: deletePicked }, '删除所选'),
-              h('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, peopleBatchField === 'cards' && peopleBatchMode === 'replace' && !peopleBatchCards.length ? '未选卡片时清除绑定，所有卡片都能使用' : peopleBatchMode === 'replace' && peopleBatchField !== 'enabled' ? '覆盖会替换原内容；文本留空会清空该字段' : '应用后点保存即可写入人物库'),
+              h('button', { style: Object.assign({}, buttonStyle, { borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 65%, transparent)', color: 'var(--dsw-alias-state-error-primary)' }), disabled: !picked.length, onClick: deletePicked }, '删除所选'),
+              h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, peopleBatchField === 'cards' && peopleBatchMode === 'replace' && !peopleBatchCards.length ? '未选卡片时清除绑定，所有卡片都能使用' : peopleBatchMode === 'replace' && peopleBatchField !== 'enabled' ? '覆盖会替换原内容；文本留空会清空该字段' : '应用后点保存即可写入人物库'),
             ),
-            peopleBatchNote ? h('div', { role: 'status', style: { fontSize: '12px', color: '#9aa3b2' } }, peopleBatchNote) : null,
+            peopleBatchNote ? h('div', { role: 'status', style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, peopleBatchNote) : null,
           )
         }
 
@@ -3331,19 +3357,62 @@ function versionsOf(jobId) {
         }
 
         /** 从当前会话的世界书导入成年角色 */
+        /** 从选定的卡导入：先预览候选，勾选确认后才写入人物库 */
         async function importFromCard() {
           try {
             setNote('正在读取这张卡里的角色…')
-            const result = await post('/import-characters', { sessionId: String(lastSessionId || ''), card: importCard })
+            const result = await post('/import-characters', { sessionId: String(lastSessionId || ''), card: importCard, dryRun: true })
+            if (!result?.ok) throw new Error(result?.error || '读取失败')
+            const items = (result.candidates || []).map(item => ({ action: item.action, person: item.person, pick: item.action !== 'same' }))
+            setImportPreview({ card: importCard, cardName: result.cardName || cardTitleOf(importCard), items })
+            setNote(items.length ? '先看一下要导入的人，勾选后点「确认导入」' : ('这张卡里没有可导入的角色' + (result?.llmError ? '（' + String(result.llmError).slice(0, 140) + '）' : '')))
+            return result
+            const added = result?.added || []
+            const updated = result?.updated || []
+            const parts = []
+            if (added.length) parts.push('新增 ' + added.join('、'))
+            if (updated.length) parts.push('补全 ' + updated.join('、'))
+            const why = result?.llmError ? ('（' + String(result.llmError).slice(0, 140) + '）') : ''
+            const message = parts.length ? ('从选定的卡导入：' + parts.join('；')) : ('这张卡里没有可导入的角色' + why)
+            setNote(message)
+            if (typeof showToast === 'function') showToast(message)
+            return result
+          } catch (error) {
+            const message = '导入失败：' + (error?.message ?? error)
+            setNote(message)
+            if (typeof showToast === 'function') showToast(message)
+            return null
+          }
+        }
+
+        /** 卡文件 → 显示名（预览面板标题用） */
+        function cardTitleOf(path) {
+          return (importCards.find(item => item.path === path)?.label)
+            || String(path || '').replace(/^.*[\/\\]/, '').replace(/\.json$/i, '')
+        }
+
+        /** 预览面板点「确认导入」：把勾选的人原样送回去，后端不再重新抽取 */
+        async function confirmImport() {
+          const preview = importPreview
+          if (!preview) return null
+          const picked = preview.items.filter(item => item.pick).map(item => item.person)
+          if (!picked.length) { setNote('没有勾选要导入的人'); return null }
+          try {
+            setNote('正在导入…')
+            const result = await post('/import-characters', { sessionId: String(lastSessionId || ''), card: preview.card, apply: picked })
+            if (!result?.ok) throw new Error(result?.error || '导入失败')
+            setImportPreview(null)
             if (result?.state) receiveState(result.state)
             const added = result?.added || []
             const updated = result?.updated || []
             const parts = []
             if (added.length) parts.push('新增 ' + added.join('、'))
             if (updated.length) parts.push('补全 ' + updated.join('、'))
-            const message = parts.length ? ('从选定的卡导入：' + parts.join('；')) : '这张卡里没有可导入的角色'
+            const message = parts.length ? ('从选定的卡导入：' + parts.join('；')) : '勾选的人和人物库里已有的一样，没有变化'
             setNote(message)
             if (typeof showToast === 'function') showToast(message)
+            const fresh = await post('/state', {}).catch(() => null)
+            if (fresh) receiveState(fresh)
             return result
           } catch (error) {
             const message = '导入失败：' + (error?.message ?? error)
@@ -3529,28 +3598,28 @@ function versionsOf(jobId) {
               setDesignPanelBusy(false)
             }
           }
-          const area = { width: '100%', minHeight: '96px', boxSizing: 'border-box', background: '#11141a', color: '#dbe3ee', border: '1px solid rgba(200,140,60,.55)', borderRadius: '12px', padding: '12px 14px', fontSize: '13px', lineHeight: '1.6', fontFamily: 'inherit', resize: 'vertical' }
-          return h('div', { style: { margin: '10px 0 4px', padding: '16px', borderRadius: '12px', background: 'linear-gradient(180deg,#1b2029,#161a21)', border: '1px solid rgba(230,160,60,.4)' } },
+          const area = { width: '100%', minHeight: '96px', boxSizing: 'border-box', background: 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', border: '1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary) 55%, transparent)', borderRadius: '12px', padding: '12px 14px', fontSize: '13px', lineHeight: '1.6', fontFamily: 'inherit', resize: 'vertical' }
+          return h('div', { style: { margin: '10px 0 4px', padding: '16px', borderRadius: '12px', background: 'linear-gradient(180deg,var(--dsw-specific-input-major),var(--dsw-specific-input-major))', border: '1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary) 40%, transparent)' } },
             h('div', { style: { fontSize: '15px', fontWeight: 600, marginBottom: '4px' } },
               characters.find(character => character.id === improveTarget)
                 ? ('✏️ 改进「' + (characters.find(character => character.id === improveTarget).name || '未命名') + '」')
                 : '🎨 输入生成需求'),
-            h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '10px' } }, '请描述您希望生成的角色或服装的具体需求'),
+            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } }, '请描述您希望生成的角色或服装的具体需求'),
             h('textarea', { value: designBrief, placeholder: '例如：生成一个穿着古风汉服的少女角色，温柔可爱…', style: area, onChange: e => setDesignBrief(e.target.value) }),
-            h('div', { style: { marginTop: '12px', padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(120,140,170,.18)' } },
+            h('div', { style: { marginTop: '12px', padding: '12px', borderRadius: '10px', background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 3%, transparent)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 18%, transparent)' } },
               h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
-                h('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, '📎 参考图片（可选）'),
-                h('label', { style: { padding: '6px 14px', fontSize: '12px', borderRadius: '8px', border: '1px solid rgba(230,160,60,.6)', color: '#f0b45c', cursor: 'pointer', background: 'rgba(240,166,60,.08)' } },
+                h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '📎 参考图片（可选）'),
+                h('label', { style: { padding: '6px 14px', fontSize: '12px', borderRadius: '8px', border: '1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary) 60%, transparent)', color: 'var(--dsw-alias-state-warning-primary)', cursor: 'pointer', background: 'color-mix(in srgb, var(--dsw-alias-state-warning-primary) 8%, transparent)' } },
                   '＋ 添加图片',
                   h('input', { type: 'file', accept: 'image/*', style: { display: 'none' }, onChange: pickDesignFile }),
                 ),
               ),
-              designPreview ? h('img', { src: designPreview, style: { display: 'block', maxWidth: '140px', borderRadius: '10px', margin: '10px auto 0' } }) : h('div', { style: { textAlign: 'center', fontSize: '12px', color: '#9aa3b2', marginTop: '10px' } }, '点击上方按钮添加参考图片'),
+              designPreview ? h('img', { src: designPreview, style: { display: 'block', maxWidth: '140px', borderRadius: '10px', margin: '10px auto 0' } }) : h('div', { style: { textAlign: 'center', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '10px' } }, '点击上方按钮添加参考图片'),
             ),
-            designNote ? h('div', { style: { fontSize: '12px', color: /失败|太大|没产出/.test(designNote) ? '#f2686b' : '#9aa3b2', marginTop: '10px' } }, designNote) : null,
+            designNote ? h('div', { style: { fontSize: '12px', color: /失败|太大|没产出/.test(designNote) ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-tertiary)', marginTop: '10px' } }, designNote) : null,
             h('div', { style: { display: 'flex', gap: '10px', marginTop: '14px' } },
               h('button', { style: buttonStyle, onClick: () => { setDesignOpen(false); setDesignNote(''); setDesignDone(''); setImproveTarget('') } }, '收起'),
-              h('button', { disabled: designPanelBusy, style: Object.assign({}, buttonStyle, { borderColor: 'rgba(230,160,60,.7)', background: 'rgba(240,166,60,.15)', color: '#f0b45c' }), onClick: runDesign }, designPanelBusy ? '正在生成…' : '确定生成'),
+              h('button', { disabled: designPanelBusy, style: Object.assign({}, buttonStyle, { borderColor: 'color-mix(in srgb, var(--dsw-alias-state-warning-primary) 70%, transparent)', background: 'color-mix(in srgb, var(--dsw-alias-state-warning-primary) 15%, transparent)', color: 'var(--dsw-alias-state-warning-primary)' }), onClick: runDesign }, designPanelBusy ? '正在生成…' : '确定生成'),
             ),
           )
         }
@@ -3590,9 +3659,107 @@ function versionsOf(jobId) {
 
         function area(label, why, value, onChange, rows) {
           return h('div', { style: { margin: '6px 0' } },
-            h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '2px' } }, label + (why ? '　' + why : '')),
+            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '2px' } }, label + (why ? '　' + why : '')),
             h('textarea', { value: value || '', onChange: e => onChange(e.target.value),
               style: Object.assign({}, S.input, { width: '100%', minHeight: ((rows || 2) * 20) + 'px', fontFamily: 'inherit', lineHeight: '1.5' }) }),
+          )
+        }
+
+        /** 把人物按「属于哪张卡」分段，段内保持原排序 */
+        function sectionsOf(list) {
+          const out = []
+          for (const person of list) {
+            const key = sectionOf(person)
+            const hit = out.find(([name]) => name === key)
+            if (hit) hit[1].push(person); else out.push([key, [person]])
+          }
+          return out
+        }
+        function bindToCard(person, path) {
+          if (!person || !path) return
+          setCharacters(current => current.map(item => item.id === person.id ? Object.assign({}, item, { cards: [...new Set([...(item.cards || []), path])] }) : item))
+          setNote('已把「' + (person.name || '未命名角色') + '」绑定到「' + cardTitle(path) + '」，记得点「保存人物库」')
+        }
+        function traitCount(person) {
+          const traits = person.traits || {}
+          return ["feature","face","faceBack","bodySFW","bodySFWBack","lowerSFW","lowerSFWBack","bodyNSFW","bodyNSFWBack","lowerNSFW","lowerNSFWBack","negative"].filter(k => String(traits[k] || '').trim()).length
+        }
+        function jumpTo(person) {
+          setPeopleSearch('')
+          if (!onFilter(person)) setPeopleCardFilter('all')
+          setPeopleActiveId(person.id)
+          setPeopleEditorOpen(true)
+        }
+
+        function importPreviewPanel() {
+          const preview = importPreview
+          if (!preview) return null
+          const label = { add: '新增', update: '补全空白项', same: '已有，无变化' }
+          const toggle = (index, pick) => setImportPreview(current => current && Object.assign({}, current, { items: current.items.map((item, k) => k === index ? Object.assign({}, item, { pick }) : item) }))
+          const count = preview.items.filter(item => item.pick).length
+          return h('div', { 'aria-label': '导入预览', style: Object.assign({}, S.card, { margin: '8px 0 12px', background: 'rgba(106,168,255,.05)' }) },
+            h('div', { style: { fontSize: '13px', fontWeight: 600, marginBottom: '6px' } }, '从「' + preview.cardName + '」导入：先确认要哪些人'),
+            h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '6px' } }, '新增的人会自动绑定到这张卡；「补全」只填人物库里空着的项，不覆盖你改过的内容。'),
+            preview.items.length ? preview.items.map((item, index) => h('label', { key: index, style: { display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '12px', padding: '4px 0', borderTop: index ? '1px solid #2c3240' : 'none' } },
+              h('input', { type: 'checkbox', 'aria-label': '导入 ' + item.person.name, checked: item.pick, onChange: event => toggle(index, event.target.checked) }),
+              h('span', { style: { minWidth: '72px', color: item.action === 'add' ? '#7fd17f' : item.action === 'update' ? '#f5c078' : '#9aa3b2' } }, label[item.action] || item.action),
+              h('span', { style: { fontWeight: 600, minWidth: '70px' } }, item.person.name),
+              h('span', { style: { color: '#9aa3b2' } }, String(item.person?.traits?.feature || item.person?.traits?.face || '').slice(0, 80)),
+            )) : h('div', { style: { fontSize: '12px', color: '#9aa3b2' } }, '这张卡里没有认出可导入的人物。'),
+            h('div', { style: S.row },
+              h('button', { style: buttonStyle, disabled: !count, onClick: confirmImport }, count ? '确认导入 ' + count + ' 位' : '没有勾选'),
+              h('button', { style: buttonStyle, onClick: () => { setImportPreview(null); setNote('已取消导入') } }, '取消'),
+            ),
+          )
+        }
+
+        function overviewPanel() {
+          const list = filteredCharacters
+          return h('div', { 'aria-label': '人物概览', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '8px', margin: '8px 0 12px' } },
+            list.length ? list.map(person => {
+              const n = traitCount(person)
+              const outfits = (person.outfits || []).length
+              const cards = person.cards || []
+              const active = activeCharacter && activeCharacter.id === person.id
+              return h('button', { key: person.id, 'aria-label': '概览 ' + (person.name || '未命名角色'), onClick: () => { jumpTo(person); setPeopleOverviewOpen(false) },
+                style: { textAlign: 'left', padding: '8px 10px', borderRadius: '10px', cursor: 'pointer', color: 'inherit', background: active ? 'rgba(106,168,255,.14)' : 'rgba(255,255,255,.03)', border: '1px solid ' + (cards.length ? 'rgba(120,140,170,.25)' : 'rgba(240,166,60,.55)'), opacity: person.enabled === false ? 0.55 : 1 } },
+                h('div', { style: { fontSize: '13px', fontWeight: 600 } }, (person.name || '（未命名角色）') + (person.enabled === false ? '（停用）' : '')),
+                h('div', { style: { fontSize: '11px', color: n >= 6 ? '#9aa3b2' : '#f5c078', marginTop: '3px' } }, '外貌 ' + n + '/12 块 · ' + (outfits ? outfits + ' 套服装' : '没有服装')),
+                h('div', { style: { fontSize: '11px', color: cards.length ? '#9aa3b2' : '#f5c078', marginTop: '2px' } }, cards.length ? '绑定：' + cards.map(cardTitle).join('、').slice(0, 40) : '未绑定卡：所有卡都会用到'),
+              )
+            }) : h('div', { style: { fontSize: '12px', color: '#9aa3b2' } }, '当前筛选下没有人物'),
+          )
+        }
+
+        /** 整理：列出可能出问题的人物，可直接跳过去改或一键处理 */
+        function tidyPanel() {
+          const PLAYER = /^(你|我|玩家|主角|男主|女主|主人公|user|\{\{user\}\})$/i
+          const issues = []
+          const byName = new Map()
+          for (const person of characters) {
+            const name = String(person.name || '').trim()
+            if (name) byName.set(name, (byName.get(name) || 0) + 1)
+          }
+          for (const person of characters) {
+            const name = String(person.name || '').trim()
+            if (!name || PLAYER.test(name) || name.includes('{{user}}')) issues.push({ person, kind: 'player', text: name ? '像是玩家角色，不需要建生图设定' : '没有名字' })
+            if (!(person.cards || []).length) issues.push({ person, kind: 'unbound', text: '没绑定卡：所有卡的图里都可能出现' })
+            if (name && byName.get(name) > 1) issues.push({ person, kind: 'dup', text: '和另一位重名，生图时可能互相顶替' })
+            if (traitCount(person) < 3) issues.push({ person, kind: 'sparse', text: '外貌只填了 ' + traitCount(person) + ' 块，出图会不稳定' })
+          }
+          const remove = person => {
+            if (typeof confirm === 'function' && !confirm('删掉「' + (person.name || '未命名') + '」？')) return
+            setCharacters(current => current.filter(item => item.id !== person.id))
+          }
+          return h('div', { 'aria-label': '整理人物库', style: Object.assign({}, S.card, { margin: '8px 0 12px' }) },
+            h('div', { style: { fontSize: '13px', fontWeight: 600, marginBottom: '6px' } }, issues.length ? '发现 ' + issues.length + ' 处可以整理的地方（看全部卡）' : '人物库很整齐，没有发现问题'),
+            issues.map((issue, index) => h('div', { key: issue.person.id + issue.kind, style: Object.assign({}, S.row, { borderTop: index ? '1px solid #2c3240' : 'none', paddingTop: '4px' }) },
+              h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', minWidth: '90px' }), onClick: () => jumpTo(issue.person) }, issue.person.name || '（未命名角色）'),
+              h('span', { style: { fontSize: '12px', color: '#9aa3b2', flex: 1 } }, issue.text),
+              issue.kind === 'unbound' && bindTarget ? h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px' }), onClick: () => bindToCard(issue.person, bindTarget) }, '绑定到「' + cardTitle(bindTarget) + '」') : null,
+              issue.kind === 'player' ? h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', borderColor: 'rgba(242,104,107,.65)', color: '#f2686b' }), onClick: () => remove(issue.person) }, '删除') : null,
+            )),
+            issues.length ? h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginTop: '6px' } }, '处理完记得点「保存人物库」') : null,
           )
         }
 
@@ -3600,12 +3767,12 @@ function versionsOf(jobId) {
           const traits = c.traits || {}
           const outfits = c.outfits || []
           const filled = ["feature","face","faceBack","bodySFW","bodySFWBack","lowerSFW","lowerSFWBack","bodyNSFW","bodyNSFWBack","lowerNSFW","lowerNSFWBack","negative"].filter(k => String(traits[k] || '').trim()).length
-          const title = (c.name || '（未命名角色）') + '　' + filled + '/12 块　' + (outfits.length ? outfits.length + ' 套服装' : '没有服装')
+          const title = (c.name || '（未命名角色）') + '　' + filled + '/12 块　' + (outfits.length ? outfits.length + ' 套服装' : '没有服装') + ((c.cards || []).length ? '' : '　⚠ 未绑定卡（所有卡都会用到）')
           const grouped = (list) => list.map(([key, label, why, rows, folded]) => area(label, why, traits[key], v => patchTraits(i, key, v), rows))
           return h('details', { key: c.id, open: peopleEditorOpen, onToggle: event => {
             const open = event.currentTarget.open
             setPeopleEditorOpen(current => current === open ? current : open)
-          }, style: { border: '1px solid #3a4150', borderRadius: '10px', padding: '10px 12px', margin: '8px 0' } },
+          }, style: { border: '1px solid var(--dsw-alias-border-l2)', borderRadius: '10px', padding: '10px 12px', margin: '8px 0' } },
             h('summary', { style: { cursor: 'pointer', fontSize: '13px', fontWeight: 600 } }, title),
             h('div', { style: S.row },
               h('input', { type: 'text', placeholder: '分组（只影响排序）', title: '只用于人物库列表的分组排序和搜索，不参与关键词触发', value: c.group || '', style: Object.assign({}, S.input, { width: '130px' }), onChange: e => patchIdentity(i, { group: e.target.value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40) }) }),
@@ -3627,7 +3794,7 @@ function versionsOf(jobId) {
               }),
               h('button', { style: buttonStyle, disabled: designBusy && Boolean(improveInFlight.current[c.id]), onClick: () => sendImprove(i) }, improveInFlight.current[c.id] ? '正在改进…' : '✏️ 改进'),
             ),
-            h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginTop: '-4px' } }, '直接写要求点改进即可（回车也行），不用先打开面板'),
+            h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '-4px' } }, '直接写要求点改进即可（回车也行），不用先打开面板'),
 
             h('div', { style: S.row },
               h('span', { style: S.label }, '绑定卡片'),
@@ -3644,13 +3811,13 @@ function versionsOf(jobId) {
                 },
               }, (c.cards || []).length ? ('已绑定 ' + (c.cards || []).length + ' 张：' + (c.cards || []).map(p => String(p).replace(/^cards\//, '').replace(/\.json$/, '')).join('、').slice(0, 26) + '（点击修改）') : '点这里选择要绑定的卡片（不选 = 所有卡都能用）'),
             ),
-            cardPickerFor === c.id ? h('div', { style: { marginTop: '8px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(120,140,170,.2)' } },
-              h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '8px' } }, '勾选要绑定的卡片（可多选）'),
+            cardPickerFor === c.id ? h('div', { style: { marginTop: '8px', padding: '10px 12px', borderRadius: '10px', background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 3%, transparent)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)' } },
+              h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } }, '勾选要绑定的卡片（可多选）'),
               h('div', { style: { maxHeight: '220px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' } },
                 cardList.length
                   ? cardList.map(item => h('label', {
                       key: item.path,
-                      style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', borderRadius: '8px', cursor: 'pointer', background: (c.cards || []).includes(item.path) ? 'rgba(106,168,255,.14)' : 'transparent' },
+                      style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 10px', borderRadius: '8px', cursor: 'pointer', background: (c.cards || []).includes(item.path) ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, transparent)' : 'transparent' },
                     },
                       h('input', {
                         type: 'checkbox',
@@ -3663,7 +3830,7 @@ function versionsOf(jobId) {
                       }),
                       h('span', { style: { fontSize: '13px' } }, item.name),
                     ))
-                  : h('div', { style: { fontSize: '12px', color: '#9aa3b2', padding: '8px' } }, '没读到卡片（检查设置页顶部的 ComfyUI 状态）'),
+                  : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', padding: '8px' } }, '没读到卡片（检查设置页顶部的 ComfyUI 状态）'),
               ),
               h('div', { style: { marginTop: '10px', display: 'flex', gap: '8px' } },
                 h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px' }), onClick: () => patch(i, { cards: [] }) }, '清空'),
@@ -3681,27 +3848,29 @@ function versionsOf(jobId) {
                 ' ' + (o.name || o.id),
               )),
             ) : null,
-            h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginTop: '10px' } }, '外貌（正面与背面互斥：背面不放眼睛/胸部；SFW 块不放裸露词，否则衣服画不出来）'),
+            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '10px' } }, '外貌（正面与背面互斥：背面不放眼睛/胸部；SFW 块不放裸露词，否则衣服画不出来）'),
             grouped([["feature","角色特征","气质属性，只写与绘图有关的（innocent / seductive / cold / gentle）",2,false],["face","五官外貌","【正面】发型、发色、瞳色、脸型、肤色、年龄段 —— 不写表情",3,false],["faceBack","五官外貌背面","【背面】发型背面、后脑勺、脖子后面、耳背 —— 不能写眼睛鼻子嘴巴",2,true]]),
-            h('details', { style: { marginTop: '4px' } }, h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: '#9aa3b2' } }, '穿衣身体块（上半身 / 下半身，正背面）'),
+            h('details', { style: { marginTop: '4px' } }, h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '穿衣身体块（上半身 / 下半身，正背面）'),
               grouped([["bodySFW","上半身SFW","穿衣可见的上半身正面：体型、胸部轮廓、肩宽 —— 禁裸露词",2,false],["bodySFWBack","上半身SFW背面","穿衣可见的背面：肩膀轮廓、腰部线条 —— 不写胸部",2,true],["lowerSFW","下半身SFW","穿衣可见的下半身正面：腿型 —— 禁裸露词",2,true],["lowerSFWBack","下半身SFW背面","臀部轮廓、腿部背面",2,true]]),
             ),
-            h('details', { style: { marginTop: '4px' } }, h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: '#9aa3b2' } }, '赤裸身体块（只在 NSFW 画面用）'),
+            h('details', { style: { marginTop: '4px' } }, h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '赤裸身体块（只在 NSFW 画面用）'),
               grouped([["bodyNSFW","上半身NSFW","赤裸才可见：胸部详细、乳头、正面纹身伤疤",2,true],["bodyNSFWBack","上半身NSFW背面","bare back、背部线条、肩胛骨 —— 不写胸和乳头",2,true],["lowerNSFW","下半身NSFW","赤裸才可见：生殖器官、正面纹身痣",2,true],["lowerNSFWBack","下半身NSFW背面","臀部详细、肛门 —— 不写正面生殖器",2,true]]),
             ),
-            h('details', { style: { marginTop: '4px' } }, h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: '#9aa3b2' } }, '负面 / 状态'),
+            h('details', { style: { marginTop: '4px' } }, h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '负面 / 状态'),
               grouped([["negative","负面","这张脸/身体不该出现的特征（进负向提示词）",2,true]]),
               area('状态与变化', '随剧情改，默认不注入', c.continuity, v => patch(i, { continuity: v }), 2),
               area('形态线索', '同一角色有多个形态时（名字互为前缀，如「阿梅」与「阿梅（狐形）」）填在形态条目上，逗号分隔，如 fox ears, fox tail, 狐耳。画面写着这些时，规划写的基础名字会自动换成这个形态', c.formCues || '', v => patch(i, { formCues: v }), 1),
             ),
-            h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginTop: '12px', fontWeight: 600 } }, '服装库'),
-            outfits.map((o, j) => h('div', { key: o.id || j, style: { borderTop: '1px solid #3a4150', marginTop: '8px', paddingTop: '6px' } },
+            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '12px', fontWeight: 600 } }, '服装库'),
+            outfits.map((o, j) => h('div', { key: o.id || j, style: { borderTop: '1px solid var(--dsw-alias-border-l2)', marginTop: '8px', paddingTop: '6px' } },
               h('div', { style: S.row },
                 h('input', { type: 'text', placeholder: '服装名（常服 / 居家 / 内衣…）', value: o.name || '', style: Object.assign({}, S.input, { width: '170px' }), onChange: e => patchOutfit(i, j, { name: e.target.value }) }),
                 h('label', { style: S.row }, h('input', { type: 'radio', name: 'default-outfit-' + i, checked: o.default === true, onChange: () => patch(i, { outfits: outfits.map((x, k) => Object.assign({}, x, { default: k === j })) }) }), h('span', { style: { fontSize: '12px' } }, '常穿')),
                 h('label', { style: S.row }, h('input', { type: 'checkbox', checked: o.enabled !== false, onChange: e => patchOutfit(i, j, { enabled: e.target.checked }) }), h('span', { style: { fontSize: '12px' } }, '启用')),
                 h('button', { style: buttonStyle, onClick: () => { const next = outfits.slice(); next.splice(j, 1); patch(i, { outfits: next }) } }, '删'),
               ),
+              h('details', { style: { marginTop: '4px' } },
+                h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: 'var(--dsw-alias-label-secondary)', marginTop: '4px' } }, '字段（上衣 / 下装 / 鞋袜 / 配饰 / 整体 / 背面 / 负面）'),
               area('上衣', '', o.upper, v => patchOutfit(i, j, { upper: v }), 2),
               area('下装', '', o.lower, v => patchOutfit(i, j, { lower: v }), 2),
               h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' } },
@@ -3711,30 +3880,195 @@ function versionsOf(jobId) {
                 h('input', { type: 'text', placeholder: '背面细节', value: o.back || '', style: S.input, onChange: e => patchOutfit(i, j, { back: e.target.value }) }),
               ),
               area('负面', '', o.negative, v => patchOutfit(i, j, { negative: v }), 2),
+              ),
             )),
             h('div', { style: S.row },
               h('button', { style: buttonStyle, onClick: () => patch(i, { outfits: outfits.concat([{ id: 'o' + Date.now(), name: '新服装', upper: '', lower: '', shoes: '', accessory: '', full: '', back: '', negative: '', enabled: true, default: outfits.length === 0 }]) }) }, '新增服装'),
+              h('button', { style: buttonStyle, onClick: () => setOutfitCopy(current => current.target === c.id ? { target: '', source: '', picked: [] } : { target: c.id, source: '', picked: [], mode: 'whole', parts: {} }) }, outfitCopy.target === c.id ? '收起复制' : '从其他角色复制服装'),
             ),
+            outfitCopy.target === c.id ? outfitCopyPanel(c, i) : null,
+          )
+        }
+        /**
+         * 从另一位角色复制服装到当前角色，两种方式：
+         * - 整套：勾一套、几套或全选，复制成新服装（新编号、不抢常穿，同名加「（复制）」）。
+         * - 按部位：从一套或几套里勾上衣/下装/鞋袜等部位，拼成一套新服装，或放进当前角色已有的某一套（覆盖或追加）。
+         * 复制品都是独立的一份；改完要点「保存人物库」。
+         */
+        function outfitCopyPanel(c, i) {
+          const PARTS = [['upper', '上衣'], ['lower', '下装'], ['shoes', '鞋袜'], ['accessory', '配饰'], ['full', '整体'], ['back', '背面'], ['negative', '负面']]
+          const cp = outfitCopy
+          const sources = characters.filter(person => person.id !== c.id && (person.outfits || []).length)
+          const source = sources.find(person => person.id === cp.source) || null
+          const list = source ? (source.outfits || []) : []
+          const mode = cp.mode === 'parts' ? 'parts' : 'whole'
+          const set = changes => setOutfitCopy(current => Object.assign({}, current, changes))
+          const close = () => setOutfitCopy({ target: '', source: '', picked: [] })
+          const own = c.outfits || []
+          const small = Object.assign({}, buttonStyle, { fontSize: '12px' })
+          const valueOf = (o, key) => String((key === 'upper' ? (o.upper || o.body) : o[key]) || '').trim()
+
+          // —— 整套 ——
+          const picked = new Set(cp.picked || [])
+          const chosen = list.filter(o => picked.has(o.id))
+          const copyWhole = () => {
+            if (!chosen.length) return
+            patch(i, person => {
+              const mine = person.outfits || []
+              const names = new Set(mine.map(o => String(o.name || '')))
+              const stamp = Date.now()
+              const added = chosen.map((o, k) => {
+                let name = String(o.name || '服装')
+                while (names.has(name)) name += '（复制）'
+                names.add(name)
+                return Object.assign({}, o, { id: 'o' + stamp + k + Math.random().toString(36).slice(2, 6), name, default: mine.length === 0 && k === 0 })
+              })
+              return { outfits: mine.concat(added) }
+            })
+            close()
+          }
+
+          // —— 按部位 ——
+          const parts = cp.parts || {}
+          const partOn = (oid, key) => (parts[oid] || []).includes(key)
+          const togglePart = (oid, key, on) => {
+            const next = new Set(parts[oid] || [])
+            if (on) next.add(key); else next.delete(key)
+            set({ parts: Object.assign({}, parts, { [oid]: PARTS.map(([k]) => k).filter(k => next.has(k)) }) })
+          }
+          const setOutfitParts = (o, on) => set({ parts: Object.assign({}, parts, { [o.id]: on ? PARTS.map(([k]) => k).filter(k => valueOf(o, k)) : [] }) })
+          // 收集选中的部位：同一部位从几套里都勾了，就按套的顺序用逗号拼起来
+          const gathered = {}
+          for (const o of list) for (const [key] of PARTS) if (partOn(o.id, key) && valueOf(o, key)) (gathered[key] = gathered[key] || []).push(valueOf(o, key))
+          const gatheredKeys = PARTS.map(([k]) => k).filter(k => gathered[k])
+          const dest = own.some(o => o.id === cp.dest) ? cp.dest : 'new'
+          const merge = cp.merge === 'append' ? 'append' : 'replace'
+          const copyParts = () => {
+            if (!gatheredKeys.length) return
+            const values = {}
+            for (const key of gatheredKeys) values[key] = gathered[key].join(', ')
+            patch(i, person => {
+              const mine = person.outfits || []
+              if (dest === 'new') {
+                const names = new Set(mine.map(o => String(o.name || '')))
+                let name = String(cp.newName || '').trim() || '拼搭服装'
+                while (names.has(name)) name += '（复制）'
+                const blank = { name, upper: '', lower: '', shoes: '', accessory: '', full: '', back: '', negative: '', enabled: true, default: mine.length === 0 }
+                return { outfits: mine.concat([Object.assign(blank, values, { id: 'o' + Date.now() + Math.random().toString(36).slice(2, 6) })]) }
+              }
+              return { outfits: mine.map(o => {
+                if (o.id !== dest) return o
+                const next = Object.assign({}, o)
+                for (const key of gatheredKeys) {
+                  const old = valueOf(o, key)
+                  next[key] = merge === 'append' && old ? old + ', ' + values[key] : values[key]
+                }
+                return next
+              }) }
+            })
+            close()
+          }
+
+          const tab = (value, label) => h('button', { style: Object.assign({}, small, mode === value ? { borderColor: '#6aa8ff', color: '#cfe1ff' } : {}), 'aria-pressed': mode === value, onClick: () => set({ mode: value }) }, label)
+          return h('div', { 'aria-label': '复制服装', style: { marginTop: '8px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(120,140,170,.2)' } },
+            h('div', { style: S.row },
+              h('span', { style: S.label }, '从谁那里复制'),
+              h('select', {
+                'aria-label': '复制服装的来源角色',
+                value: cp.source,
+                style: Object.assign({}, S.input, { maxWidth: '220px' }),
+                onChange: e => set({ source: e.target.value, picked: [], parts: {} }),
+              }, [h('option', { key: '', value: '', style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, sources.length ? '选择角色' : '没有其他带服装的角色')].concat(
+                sources.map(person => h('option', { key: person.id, value: person.id, style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, (person.name || '未命名角色') + '（' + (person.outfits || []).length + ' 套）')))),
+              tab('whole', '整套复制'),
+              tab('parts', '按部位复制'),
+            ),
+            source && mode === 'whole' ? h('div', null,
+              h('div', { style: S.row },
+                h('button', { style: small, onClick: () => set({ picked: list.map(o => o.id) }) }, '全选'),
+                h('button', { style: small, onClick: () => set({ picked: [] }) }, '全不选'),
+              ),
+              h('div', { style: { maxHeight: '240px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '6px' } },
+                list.map(o => h('label', { key: o.id, style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '4px 6px', borderRadius: '6px', cursor: 'pointer', background: picked.has(o.id) ? 'rgba(106,168,255,.14)' : 'transparent' } },
+                  h('input', { type: 'checkbox', checked: picked.has(o.id), onChange: e => {
+                    const next = new Set(picked)
+                    if (e.target.checked) next.add(o.id); else next.delete(o.id)
+                    set({ picked: list.filter(x => next.has(x.id)).map(x => x.id) })
+                  } }),
+                  h('span', null, o.name || '未命名服装'),
+                  h('span', { style: { color: '#9aa3b2' } }, [valueOf(o, 'upper'), valueOf(o, 'lower')].filter(Boolean).join(' / ').slice(0, 60)),
+                )),
+              ),
+              h('div', { style: S.row },
+                h('button', { style: buttonStyle, disabled: !chosen.length, onClick: copyWhole }, chosen.length ? '复制这 ' + chosen.length + ' 套到「' + (c.name || '当前角色') + '」' : '先勾选要复制的服装'),
+              ),
+            ) : null,
+            source && mode === 'parts' ? h('div', null,
+              h('div', { style: { maxHeight: '320px', overflowY: 'auto', marginTop: '6px' } },
+                list.map(o => {
+                  const filled = PARTS.filter(([k]) => valueOf(o, k))
+                  const all = filled.length && filled.every(([k]) => partOn(o.id, k))
+                  return h('div', { key: o.id, 'aria-label': '部位-' + (o.name || o.id), style: { padding: '6px', borderTop: '1px solid #3a4150' } },
+                    h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 600 } },
+                      h('input', { type: 'checkbox', 'aria-label': '整套部位-' + (o.name || o.id), checked: Boolean(all), onChange: e => setOutfitParts(o, e.target.checked) }),
+                      h('span', null, o.name || '未命名服装'),
+                    ),
+                    filled.map(([key, label]) => h('label', { key, style: { display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '12px', padding: '2px 0 2px 22px' } },
+                      h('input', { type: 'checkbox', 'aria-label': (o.name || o.id) + '-' + label, checked: partOn(o.id, key), onChange: e => togglePart(o.id, key, e.target.checked) }),
+                      h('span', { style: { minWidth: '34px', color: '#9aa3b2' } }, label),
+                      h('span', null, valueOf(o, key).slice(0, 90)),
+                    )),
+                  )
+                }),
+              ),
+              h('div', { style: S.row },
+                h('span', { style: S.label }, '放到哪里'),
+                h('select', {
+                  'aria-label': '部位复制的目标服装',
+                  value: dest,
+                  style: Object.assign({}, S.input, { maxWidth: '220px' }),
+                  onChange: e => set({ dest: e.target.value }),
+                }, [h('option', { key: 'new', value: 'new', style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, '新建一套')].concat(
+                  own.map(o => h('option', { key: o.id, value: o.id, style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, '放进「' + (o.name || '未命名服装') + '」')))),
+                dest === 'new'
+                  ? h('input', { type: 'text', 'aria-label': '新服装名', placeholder: '新服装名（默认：拼搭服装）', value: cp.newName || '', style: Object.assign({}, S.input, { width: '180px' }), onChange: e => set({ newName: e.target.value }) })
+                  : h('select', { 'aria-label': '部位合并方式', value: merge, style: Object.assign({}, S.input, { maxWidth: '200px' }), onChange: e => set({ merge: e.target.value }) },
+                      h('option', { value: 'replace', style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, '覆盖这些部位'),
+                      h('option', { value: 'append', style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, '追加在原内容后面')),
+              ),
+              h('div', { style: S.row },
+                h('button', { style: buttonStyle, disabled: !gatheredKeys.length, onClick: copyParts },
+                  gatheredKeys.length ? '复制 ' + gatheredKeys.length + ' 个部位' + (dest === 'new' ? '为新服装' : '到这套') : '先勾选要复制的部位'),
+              ),
+            ) : null,
+            h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginTop: '6px' } }, '复制后是各自独立的一份，改这边不影响原来那位；记得点「保存人物库」'),
           )
         }
         return h('div', null,
           // 设计完成的提醒：放在 tab 顶部，面板关着也看得见
-          designDone ? h('div', { style: { margin: '0 0 10px', padding: '14px 16px', borderRadius: '12px', background: 'linear-gradient(180deg,rgba(240,166,60,.22),rgba(240,166,60,.12))', border: '1px solid rgba(240,166,60,.65)', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
-            h('div', { style: { fontSize: '14px', color: saveState.startsWith('failed') ? '#f2686b' : '#f5c078', fontWeight: 600, flex: 1, minWidth: '180px' } },
+          designDone ? h('div', { style: { margin: '0 0 10px', padding: '14px 16px', borderRadius: '12px', background: 'linear-gradient(180deg,color-mix(in srgb, var(--dsw-alias-state-warning-primary) 22%, transparent),color-mix(in srgb, var(--dsw-alias-state-warning-primary) 12%, transparent))', border: '1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary) 65%, transparent)', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
+            h('div', { style: { fontSize: '14px', color: saveState.startsWith('failed') ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-warning-primary)', fontWeight: 600, flex: 1, minWidth: '180px' } },
               saveState === 'saving' ? '⏳ 正在保存…'
                 : saveState === 'saved' ? '💾 已保存到 definitions.json'
                 : saveState.startsWith('failed') ? ('❌ 保存失败：' + saveState.slice(7))
                 : ('✅ ' + designDone)),
-            h('button', { style: Object.assign({}, buttonStyle, { borderColor: 'rgba(240,166,60,.8)', background: 'linear-gradient(180deg,#f0a63c,#e0861f)', color: '#1a1206', fontWeight: 600, padding: '8px 22px', fontSize: '14px' }), onClick: () => { commit(true).then(saved => { if (saved) setDesignDone('') }) } }, '💾 保存人物库'),
+            h('button', { style: Object.assign({}, buttonStyle, { borderColor: 'color-mix(in srgb, var(--dsw-alias-state-warning-primary) 80%, transparent)', background: 'linear-gradient(180deg,var(--dsw-alias-state-warning-primary),var(--dsw-alias-state-warning-primary))', color: 'var(--dsw-alias-label-primary)', fontWeight: 600, padding: '8px 22px', fontSize: '14px' }), onClick: () => { commit(true).then(saved => { if (saved) setDesignDone('') }) } }, '💾 保存人物库'),
             h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px' }), onClick: () => setDesignDone('') }, '知道了'),
         ) : null,
           h('div', { style: S.card },
             h('div', { style: { fontSize: '13px', marginBottom: '4px' } }, '人物设计（' + characters.length + ' 个角色）'),
-            h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '8px' } }, '填了名字 + 五官 + 体态的角色，会作为「可用角色清单」交给规划模型；正文里出现这个名字时，这些内容会自动补齐，所以不会换脸。'),
+            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } }, '填了名字 + 五官 + 体态的角色，会作为「可用角色清单」交给规划模型；正文里出现这个名字时，这些内容会自动补齐，所以不会换脸。'),
           h('div', { style: Object.assign({}, S.row, { alignItems: 'stretch' }) },
             h('input', { type: 'search', 'aria-label': '搜索角色', value: peopleSearch, placeholder: '搜索中文名或英文触发名', style: Object.assign({}, S.input, { flex: '1 1 220px', minWidth: '180px' }), onChange: event => setPeopleSearch(event.target.value) }),
             h('select', { 'aria-label': '当前角色', value: activeCharacter?.id || '', style: Object.assign({}, S.input, { flex: '1 1 220px', minWidth: '180px' }), onChange: event => { setPeopleActiveId(event.target.value); setPeopleEditorOpen(true) } },
-              activeCharacter ? filteredCharacters.map(character => h('option', { key: character.id, value: character.id, style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, (character.group ? '[' + character.group + '] ' : '') + (character.name || '（未命名角色）') + (character.match ? ' · ' + character.match : ''))) : h('option', { value: '', style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, '没有匹配的角色'),
+              activeCharacter ? sectionsOf(filteredCharacters).map(([section, list]) => h('optgroup', { key: section, label: section },
+                list.map(character => h('option', { key: character.id, value: character.id, style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, (character.group ? '[' + character.group + '] ' : '') + (character.name || '（未命名角色）') + (character.match ? ' · ' + character.match : ''))))) : h('option', { value: '', style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, '没有匹配的角色'),
+            ),
+            h('select', { 'aria-label': '按卡筛选人物', title: '只看某张卡能用到的人物（未绑定卡的人对所有卡都生效，总会列出来）', value: cardFilter, style: Object.assign({}, S.input, { flex: '0 1 200px', minWidth: '150px' }), onChange: event => setPeopleCardFilter(event.target.value) },
+              h('option', { value: 'all', style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, '全部卡'),
+              currentCardPath ? h('option', { value: currentCardPath, style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, '当前卡：' + cardTitle(currentCardPath)) : null,
+              importCards.filter(item => item.path !== currentCardPath).map(item => h('option', { key: item.path, value: item.path, style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, item.label)),
+              h('option', { value: '__unbound', style: { color: 'CanvasText', backgroundColor: 'Canvas' } }, '只看未绑定的'),
             ),
             h('button', { style: buttonStyle, onClick: () => setPeopleEditorOpen(open => !open) }, peopleEditorOpen ? '收起编辑' : '展开编辑'),
           ),
@@ -3751,30 +4085,38 @@ function versionsOf(jobId) {
             h('button', { style: buttonStyle, disabled: !activeCharacter, onClick: () => copyCharacter(activeCharacter) }, '复制当前角色'),
             h('button', { style: buttonStyle, disabled: !activeCharacter, onClick: () => activeCharacter && pickPhoto(activeCharacter) }, '从照片识别'),
             h('button', { style: buttonStyle, onClick: designPeople }, '让 agent 设计角色'),
+            h('button', { style: buttonStyle, onClick: () => setPeopleOverviewOpen(open => !open) }, peopleOverviewOpen ? '收起概览' : '概览'),
+            h('button', { style: buttonStyle, onClick: () => setPeopleTidyOpen(open => !open) }, peopleTidyOpen ? '收起整理' : '整理'),
             h('button', { style: buttonStyle, disabled: saveState === 'saving', onClick: () => commit(false) }, saveState === 'saving' ? '正在保存…' : '保存人物库'),
             h('button', { style: buttonStyle, onClick: () => setPeopleBatchOpen(current => !current) }, peopleBatchOpen ? '收起批量编辑' : '批量编辑'),
-            h('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, '已选 ' + picked.length + ' / ' + characters.length + ' 位'),
+            h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '已选 ' + picked.length + ' / ' + characters.length + ' 位'),
           ),
+          importPreviewPanel(),
+          peopleTidyOpen ? tidyPanel() : null,
+          peopleOverviewOpen ? overviewPanel() : null,
           designPanel(),
           batchPanel(),
-          !designOpen && designNote ? h('div', { role: 'status', style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '8px' } }, designNote) : null,
-          characters.length && !activeCharacter ? h('div', { role: 'status', style: { fontSize: '12px', color: '#9aa3b2', padding: '10px 0' } }, '没有匹配的角色，请调整搜索词。') : null,
-          !characters.length ? h('div', { style: { fontSize: '12px', color: '#9aa3b2' } }, '还没有角色，点上方「新增角色」。') : null,
+          !designOpen && designNote ? h('div', { role: 'status', style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } }, designNote) : null,
+          characters.length && !activeCharacter ? h('div', { role: 'status', style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', padding: '10px 0' } }, '没有匹配的角色，请调整搜索词。') : null,
+          !characters.length ? h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '还没有角色，点上方「新增角色」。') : null,
           activeCharacter ? characterBlock(activeCharacter, activeIndex) : null,
           h('div', { style: S.row },
-            h('span', { role: 'status', style: { fontSize: '12px', color: saveState.startsWith('failed') ? '#f2686b' : '#9aa3b2' } }, saveState.startsWith('failed') ? '保存失败，请重试' : libraryDirty.current ? '有未保存修改' : saveState === 'saved' ? '人物库已保存' : '改完记得点保存'),
+            h('span', { role: 'status', style: { fontSize: '12px', color: saveState.startsWith('failed') ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-tertiary)' } }, saveState.startsWith('failed') ? '保存失败，请重试' : libraryDirty.current ? '有未保存修改' : saveState === 'saved' ? '人物库已保存' : '改完记得点保存'),
           ),
           ),
           h('div', { style: S.card },
             h('div', { style: { fontSize: '13px', marginBottom: '4px' } }, '通用服装库（可跨角色复用）'),
-            h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '8px' } }, '这里放"办公室职业装""居家睡衣"这类通用套装；在角色那边勾上，他就能穿。'),
-            (data.outfits || []).map((o, j) => h('div', { key: o.id || j, style: { borderTop: '1px solid #3a4150', marginTop: '8px', paddingTop: '6px' } },
+            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } }, '这里放"办公室职业装""居家睡衣"这类通用套装；在角色那边勾上，他就能穿。'),
+            (data.outfits || []).map((o, j) => h('div', { key: o.id || j, style: { borderTop: '1px solid var(--dsw-alias-border-l2)', marginTop: '8px', paddingTop: '6px' } },
               h('div', { style: S.row },
                 h('input', { type: 'text', placeholder: '套装名', value: o.name || '', style: Object.assign({}, S.input, { width: '190px' }), onChange: e => { const next = (data.outfits || []).slice(); next[j] = Object.assign({}, o, { name: e.target.value }); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }),
                 h('label', { style: S.row }, h('input', { type: 'checkbox', checked: o.enabled !== false, onChange: e => { const next = (data.outfits || []).slice(); next[j] = Object.assign({}, o, { enabled: e.target.checked }); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }), h('span', { style: { fontSize: '12px' } }, '启用')),
                 h('button', { style: buttonStyle, onClick: () => { const next = (data.outfits || []).slice(); next.splice(j, 1); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }, '删除'),
               ),
+              h('details', { style: { marginTop: '6px' } },
+                h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: 'var(--dsw-alias-label-secondary)', marginTop: '4px' } }, '字段（上衣 / 下装 / 鞋袜 / 整体）'),
               h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' } },
+              ),
                 h('input', { type: 'text', placeholder: '上衣', value: o.upper || o.body || '', style: S.input, onChange: e => { const next = (data.outfits || []).slice(); next[j] = Object.assign({}, o, { upper: e.target.value }); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }),
                 h('input', { type: 'text', placeholder: '下装', value: o.lower || '', style: S.input, onChange: e => { const next = (data.outfits || []).slice(); next[j] = Object.assign({}, o, { lower: e.target.value }); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }),
                 h('input', { type: 'text', placeholder: '鞋袜', value: o.shoes || '', style: S.input, onChange: e => { const next = (data.outfits || []).slice(); next[j] = Object.assign({}, o, { shoes: e.target.value }); setLibraryData(Object.assign({}, dataRef.current, { outfits: next })) } }),
@@ -3999,22 +4341,22 @@ function versionsOf(jobId) {
         const ta = Object.assign({}, S.input, { width: '100%', minHeight: '110px', fontFamily: 'ui-monospace, Consolas, monospace', fontSize: '11px', lineHeight: '1.5', resize: 'vertical', boxSizing: 'border-box' })
 
         return h('div', { style: S.card },
-          h('div', { style: { padding: '12px', marginBottom: '12px', borderRadius: '10px', background: 'rgba(106,168,255,.08)', border: '1px solid rgba(106,168,255,.35)' } },
+          h('div', { style: { padding: '12px', marginBottom: '12px', borderRadius: '10px', background: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 35%, transparent)' } },
             h('div', { style: { fontSize: '14px', fontWeight: 700, marginBottom: '8px' } }, 'ComfyUI 生成方式'),
             h('div', { style: Object.assign({}, S.row, { alignItems: 'stretch' }) },
               h('label', { style: { fontSize: '12px', fontWeight: 600, minWidth: '92px', paddingTop: '7px' } }, '模式'),
               h('select', { value: config.comfyMode === 'simple' ? 'simple' : 'workflow', style: Object.assign({}, S.input, { minWidth: '220px', flex: 1 }), onChange: e => save({ comfyMode: e.target.value }) },
                 h('option', { value: 'workflow' }, '工作流模式（当前默认）'), h('option', { value: 'simple' }, '简单模式（不需要 JSON）'))),
             config.comfyMode === 'simple' ? h('div', { style: { marginTop: '10px' } },
-              h('div', { style: { fontSize: '12px', color: '#d6deea', marginBottom: '8px' } }, '从 ComfyUI 读取实际可用的模型与节点；此操作只读取信息，不会提交生成任务。'),
+              h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-primary)', marginBottom: '8px' } }, '从 ComfyUI 读取实际可用的模型与节点；此操作只读取信息，不会提交生成任务。'),
               h('div', { style: Object.assign({}, S.row, { alignItems: 'stretch' }) },
                 h('label', { style: { fontSize: '12px', fontWeight: 600, minWidth: '92px', paddingTop: '7px' } }, '模板'),
                 h('select', { value: simpleDraft.template || 'checkpoint', style: Object.assign({}, S.input, { minWidth: '220px', flex: 1 }), onChange: e => updateSimple({ template: e.target.value }) },
                   h('option', { value: 'checkpoint' }, 'Checkpoint（SD / SDXL）'), h('option', { value: 'flux' }, 'Flux'), h('option', { value: 'anima' }, 'Anima')),
                 h('button', { style: buttonStyle, onClick: refreshSimpleInfo, disabled: simpleLoading }, simpleLoading ? '读取中…' : '刷新模型列表'),
-                h('button', { style: Object.assign({}, buttonStyle, { borderColor: 'rgba(139,212,139,.65)', color: '#8bd48b', fontWeight: 600 }), onClick: async () => { const r = await save({ comfyMode: 'simple', comfySimple: simpleDraft }); if (r) { setSimpleConfigDraft(null); setSimpleNote('简单模式设置已保存') } } }, '保存简单模式设置')),
-              simpleNote ? h('div', { style: { fontSize: '12px', color: /失败|不可用/.test(simpleNote) ? '#ff8d8d' : '#b5c6dc', marginTop: '7px' } }, simpleNote) : null,
-              simpleSupport?.reason ? h('div', { role: 'status', style: { marginTop: '8px', padding: '9px 10px', color: '#ffd08a', background: 'rgba(255,190,90,.10)', border: '1px solid rgba(255,190,90,.35)', borderRadius: '8px', fontSize: '12px', lineHeight: 1.5 } }, simpleSupport.reason) : null,
+                h('button', { style: Object.assign({}, buttonStyle, { borderColor: 'color-mix(in srgb, var(--dsw-alias-state-success-primary) 65%, transparent)', color: 'var(--dsw-alias-state-success-primary)', fontWeight: 600 }), onClick: async () => { const r = await save({ comfyMode: 'simple', comfySimple: simpleDraft }); if (r) { setSimpleConfigDraft(null); setSimpleNote('简单模式设置已保存') } } }, '保存简单模式设置')),
+              simpleNote ? h('div', { style: { fontSize: '12px', color: /失败|不可用/.test(simpleNote) ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-brand-primary)', marginTop: '7px' } }, simpleNote) : null,
+              simpleSupport?.reason ? h('div', { role: 'status', style: { marginTop: '8px', padding: '9px 10px', color: 'var(--dsw-alias-state-warning-primary)', background: 'color-mix(in srgb, var(--dsw-alias-state-warning-primary) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary) 35%, transparent)', borderRadius: '8px', fontSize: '12px', lineHeight: 1.5 } }, simpleSupport.reason) : null,
               ['checkpoint', 'flux', 'anima'].includes(simpleDraft.template) ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' } },
                 simpleDraft.template === 'checkpoint'
                   ? h('div', { style: Object.assign({}, S.row, { alignItems: 'stretch' }) }, h('label', { style: { fontSize: '12px', fontWeight: 600, minWidth: '92px', paddingTop: '7px' } }, 'Checkpoint'),
@@ -4046,12 +4388,12 @@ function versionsOf(jobId) {
                   h('input', { type: 'number', min: 64, max: 8192, step: 8, value: simpleDraft.width ?? 832, 'aria-label': '宽度', style: Object.assign({}, S.input, { width: '82px' }), onChange: e => updateSimple({ width: e.target.value }) }),
                   h('span', { style: { paddingTop: '7px' } }, '×'),
                   h('input', { type: 'number', min: 64, max: 8192, step: 8, value: simpleDraft.height ?? 1216, 'aria-label': '高度', style: Object.assign({}, S.input, { width: '82px' }), onChange: e => updateSimple({ height: e.target.value }) })),
-                h('div', { style: { fontSize: '11px', color: '#bac7d7', paddingLeft: '92px' } }, '宽高按 8 像素倍数生效（其他数值自动取最近值）；简单模式固定输出 ' + (simpleDraft.width || 832) + ' × ' + (simpleDraft.height || 1216) + ' 像素，工作流模式的画幅设置不会覆盖它。'),
+                h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)', paddingLeft: '92px' } }, '宽高按 8 像素倍数生效（其他数值自动取最近值）；简单模式固定输出 ' + (simpleDraft.width || 832) + ' × ' + (simpleDraft.height || 1216) + ' 像素，工作流模式的画幅设置不会覆盖它。'),
                 h('div', { style: Object.assign({}, S.row, { alignItems: 'stretch' }) },
                   h('label', { style: { fontSize: '12px', fontWeight: 600, minWidth: '92px', paddingTop: '7px' } }, '固定种子'),
                   h('input', { type: 'number', min: 0, max: 140737488355327, value: simpleDraft.seed ?? '', placeholder: '留空则每张随机', style: Object.assign({}, S.input, { width: '220px' }), onChange: e => updateSimple({ seed: e.target.value }) }),
-                  h('span', { style: { fontSize: '11px', color: '#bac7d7', paddingTop: '7px' } }, '只读取已保存的固定种子；默认每张随机')),
-                h('div', { style: { padding: '9px', border: '1px solid rgba(120,140,170,.3)', borderRadius: '8px' } },
+                  h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)', paddingTop: '7px' } }, '只读取已保存的固定种子；默认每张随机')),
+                h('div', { style: { padding: '9px', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 30%, transparent)', borderRadius: '8px' } },
                   h('div', { style: { fontSize: '12px', fontWeight: 600, marginBottom: '7px' } }, 'LoRA（按当前模板的模型路径连接）'),
                   (simpleDraft.loras || []).map((lora, index) => h('div', { key: index, style: Object.assign({}, S.row, { marginBottom: '6px' }) },
                     h('input', { type: 'checkbox', checked: lora.enabled !== false, 'aria-label': '启用 LoRA', onChange: e => updateSimple({ loras: simpleDraft.loras.map((item, i) => i === index ? Object.assign({}, item, { enabled: e.target.checked }) : item) }) }),
@@ -4063,9 +4405,9 @@ function versionsOf(jobId) {
             ) : null,
           ),
           h('div', { style: { fontSize: '13px', marginBottom: '4px' } }, '工作流（' + list.length + ' 张）'),
-          h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '10px' } },
+          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } },
             '从 ComfyUI 导出「API 格式」的 JSON 就能导进来，插件会自动认出正负面提示词、尺寸、步数、底模和 LoRA。',
-            h('div', { style: { fontSize: '12px', color: '#8fbcff', marginBottom: '10px' } },
+            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-brand-primary)', marginBottom: '10px' } },
               '导入后点它右边的「设为默认」，之后生成就用这张了。当前：' + (function () {
                 const cur = (data.workflows || []).find(w => w.current)
                 return cur ? '《' + (cur.label || cur.id) + '》' : '（没选，用第一张可用的）'
@@ -4074,17 +4416,17 @@ function versionsOf(jobId) {
             h('button', { style: buttonStyle, onClick: () => setWfImportOpen(v => !v) }, wfImportOpen ? '✖ 收起导入' : '📥 导入工作流'),
             h('button', { style: buttonStyle, onClick: async () => { const r = await post('/reload', {}); if (r?.state) receiveState(r.state); setWfNote('已重新扫描') } }, '🔄 重新扫描'),
             h('button', { style: buttonStyle, onClick: loadLoraNames }, '🧩 读 ComfyUI 的 LoRA 列表'),
-            h('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#9aa3b2' } },
+            h('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } },
               h('input', { type: 'checkbox', checked: Boolean(config.lockWorkflow), onChange: e => save({ lockWorkflow: e.target.checked }) }),
               '锁定（不管别处选什么都用这张）'),
-            wfNote ? h('span', { style: { fontSize: '12px', color: /失败|不是/.test(wfNote) ? '#f2686b' : '#9aa3b2' } }, wfNote) : null,
+            wfNote ? h('span', { style: { fontSize: '12px', color: /失败|不是/.test(wfNote) ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-tertiary)' } }, wfNote) : null,
           ),
 
-          wfImportOpen ? h('div', { style: { marginTop: '10px', padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(120,140,170,.22)' } },
-            h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '8px' } },
+          wfImportOpen ? h('div', { style: { marginTop: '10px', padding: '12px', borderRadius: '10px', background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 3%, transparent)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)' } },
+            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } },
               '在 ComfyUI 里用「工作流 → 导出（API）」，或用 Save (API Format) 得到 JSON；也可以直接把 JSON 粘在下面。'),
             h('div', { style: S.row },
-              h('label', { style: { padding: '6px 14px', fontSize: '12px', borderRadius: '8px', border: '1px solid rgba(106,168,255,.6)', color: '#8fbcff', cursor: 'pointer', background: 'rgba(106,168,255,.1)' } },
+              h('label', { style: { padding: '6px 14px', fontSize: '12px', borderRadius: '8px', border: '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 60%, transparent)', color: 'var(--dsw-alias-brand-primary)', cursor: 'pointer', background: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent)' } },
                 '📁 选 JSON 文件',
                 h('input', { type: 'file', accept: '.json,application/json', style: { display: 'none' }, onChange: pickWfFile }),
               ),
@@ -4100,16 +4442,16 @@ function versionsOf(jobId) {
             list.length ? list.map(wf => {
               const isOpen = String(wf.file ?? '') === String(wfOpen)
               const sum = wf.summary || {}
-              return h('div', { key: wf.id, style: { borderRadius: '10px', border: isOpen ? '1px solid rgba(106,168,255,.7)' : '1px solid rgba(120,140,170,.22)', background: 'rgba(255,255,255,.03)', padding: '10px 12px' } },
+              return h('div', { key: wf.id, style: { borderRadius: '10px', border: isOpen ? '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 70%, transparent)' : '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)', background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 3%, transparent)', padding: '10px 12px' } },
                 h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } },
                   h('span', { style: { fontSize: '13px', fontWeight: 600, flex: 1, minWidth: '140px' } },
                     wf.label || wf.id || '(无名)',
-                    wf.current ? h('span', { style: { fontSize: '11px', color: '#8bd48b', marginLeft: '8px' } }, '← 正在使用') : null,
-                    wf.error ? h('span', { style: { fontSize: '11px', color: '#f2686b', marginLeft: '8px' } }, '（不可用）') : null),
+                    wf.current ? h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-state-success-primary)', marginLeft: '8px' } }, '← 正在使用') : null,
+                    wf.error ? h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-state-error-primary)', marginLeft: '8px' } }, '（不可用）') : null),
                   wf.current
-                    ? h('span', { style: { fontSize: '11px', color: '#8bd48b', padding: '3px 8px', borderRadius: '7px', background: 'rgba(139,212,139,.12)' } }, '✓ 正在用这张')
+                    ? h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-state-success-primary)', padding: '3px 8px', borderRadius: '7px', background: 'color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent)' } }, '✓ 正在用这张')
                     : h('button', {
-                        style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 12px', borderColor: 'rgba(139,212,139,.6)', color: '#8bd48b' }),
+                        style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 12px', borderColor: 'color-mix(in srgb, var(--dsw-alias-state-success-primary) 60%, transparent)', color: 'var(--dsw-alias-state-success-primary)' }),
                         title: '之后的生成都用这张工作流',
                         onClick: async () => {
                           if (wf.error) { if (typeof showToast === 'function') showToast('这张工作流不可用：' + wf.error, 'fail'); return }
@@ -4118,7 +4460,7 @@ function versionsOf(jobId) {
                         },
                       }, '设为默认'),
                   h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 12px' }), onClick: () => openWorkflow(wf.file) }, isOpen ? '△ 收起' : '✏️ 编辑 / LoRA'),
-                  h('button', { type: 'button', 'aria-label': '可视化编辑 ' + (wf.label || wf.id), style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 12px', borderColor: 'rgba(106,168,255,.7)', color: '#a8caff' }), onClick: () => setWfGraphFile(wf.file) }, '可视化编辑'),
+                  h('button', { type: 'button', 'aria-label': '可视化编辑 ' + (wf.label || wf.id), style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 12px', borderColor: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 70%, transparent)', color: 'var(--dsw-alias-brand-primary)' }), onClick: () => setWfGraphFile(wf.file) }, '可视化编辑'),
                   h('button', {
                     style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 12px' }),
                     title: '重命名这张',
@@ -4133,7 +4475,7 @@ function versionsOf(jobId) {
                     },
                   }, '改名'),
                   h('button', {
-                    style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 12px', borderColor: 'rgba(242,104,107,.6)', color: '#f2686b' }),
+                    style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 12px', borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent)', color: 'var(--dsw-alias-state-error-primary)' }),
                     title: '从列表移除（不删文件）',
                     onClick: async () => {
                       if (!confirm('把《' + (wf.label || wf.id) + '》从列表移除？只移除条目，磁盘 JSON 不删。')) return
@@ -4145,22 +4487,22 @@ function versionsOf(jobId) {
                     },
                   }, '移除'),
                 ),
-                h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginTop: '4px' } },
+                h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '4px' } },
                   (sum.model ? '底模 ' + sum.model + '　' : '') +
                   (sum.base ? '尺寸 ' + sum.base + '　' : '') +
                   (sum.nodeCount ? sum.nodeCount + ' 节点　' : '') +
                   ((sum.loras || []).length ? (sum.loras || []).length + ' 个 LoRA' : '')),
-                (sum.positivePeek || sum.negativePeek) ? h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginTop: '3px', fontFamily: 'ui-monospace, Consolas, monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+                (sum.positivePeek || sum.negativePeek) ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '3px', fontFamily: 'ui-monospace, Consolas, monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
                   (sum.positivePeek ? '＋ ' + sum.positivePeek : '') + (sum.negativePeek ? '　－ ' + sum.negativePeek : '')) : null,
-                h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginTop: '3px' } },
+                h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '3px' } },
                   '点右边的「✏️ 编辑 / LoRA」可以改提示词、尺寸、步数、底模和 LoRA。'),
-                wf.error ? h('div', { style: { fontSize: '12px', color: '#f2686b', marginTop: '4px' } }, wf.error) : null,
+                wf.error ? h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-state-error-primary)', marginTop: '4px' } }, wf.error) : null,
 
-                isOpen ? h('div', { style: { marginTop: '10px', borderTop: '1px solid rgba(120,140,170,.25)', paddingTop: '10px' } },
+                isOpen ? h('div', { style: { marginTop: '10px', borderTop: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 25%, transparent)', paddingTop: '10px' } },
                   !detail
-                    ? h('div', { style: { fontSize: '12px', color: '#9aa3b2' } }, '读取中…')
+                    ? h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '读取中…')
                     : h('div', null,
-                        h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '8px' } },
+                        h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } },
                           '输出节点 ' + (detail.outputNode || '?') +
                           '　正面 ' + (detail.bindings?.positive?.length ?? 0) +
                           '　负面 ' + (detail.bindings?.negative?.length ?? 0) +
@@ -4170,17 +4512,17 @@ function versionsOf(jobId) {
                         // 试跑 + 编辑绑定
                         h('div', { style: Object.assign({}, S.row, { marginBottom: '10px' }) },
                           h('button', {
-                            style: Object.assign({}, buttonStyle, { borderColor: 'rgba(139,212,139,.6)', color: '#8bd48b', fontWeight: 600 }),
+                            style: Object.assign({}, buttonStyle, { borderColor: 'color-mix(in srgb, var(--dsw-alias-state-success-primary) 60%, transparent)', color: 'var(--dsw-alias-state-success-primary)', fontWeight: 600 }),
                             onClick: () => testWorkflow(wf),
                             title: '用这张工作流真的画一张，验证它能不能跑通',
                           }, '⚡ 试跑一张'),
 
-                          wfTestNote ? h('span', { style: { fontSize: '12px', color: /✗/.test(wfTestNote) ? '#f2686b' : (/✓/.test(wfTestNote) ? '#8bd48b' : '#9aa3b2') } }, wfTestNote) : null,
+                          wfTestNote ? h('span', { style: { fontSize: '12px', color: /✗/.test(wfTestNote) ? 'var(--dsw-alias-state-error-primary)' : (/✓/.test(wfTestNote) ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)') } }, wfTestNote) : null,
                         ),
 
                         // 简单编辑：直接改参数值（不用理解节点）
-                        wfValues && !wfValues.__error ? h('div', { style: { marginBottom: '12px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(120,140,170,.22)' } },
-                          h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '8px' } },
+                        wfValues && !wfValues.__error ? h('div', { style: { marginBottom: '12px', padding: '10px 12px', borderRadius: '10px', background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 3%, transparent)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)' } },
+                          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } },
                             '这张工作流的参数。改完点「💾 保存参数」立刻生效，之后生成就用这些值。'),
                           h('div', { style: Object.assign({}, S.row, { alignItems: 'flex-start' }) },
                             h('span', { style: Object.assign({}, S.label, { minWidth: '74px', paddingTop: '6px' }) }, '正面提示词'),
@@ -4199,9 +4541,9 @@ function versionsOf(jobId) {
                           h('div', { style: S.row },
                             h('span', { style: Object.assign({}, S.label, { minWidth: '74px' }) }, '尺寸'),
                             h('input', { type: 'number', value: wfValues.width ?? '', placeholder: '宽', style: Object.assign({}, S.input, { width: '88px' }), onChange: e => setWfValues(Object.assign({}, wfValues, { width: e.target.value })) }),
-                            h('span', { style: { color: '#9aa3b2' } }, '×'),
+                            h('span', { style: { color: 'var(--dsw-alias-label-tertiary)' } }, '×'),
                             h('input', { type: 'number', value: wfValues.height ?? '', placeholder: '高', style: Object.assign({}, S.input, { width: '88px' }), onChange: e => setWfValues(Object.assign({}, wfValues, { height: e.target.value })) }),
-                            h('span', { style: { fontSize: '11px', color: '#9aa3b2', marginLeft: '8px' } }, '这里只是这张工作流的上限参考，实际尺寸由生成时的画幅决定'),
+                            h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginLeft: '8px' } }, '这里只是这张工作流的上限参考，实际尺寸由生成时的画幅决定'),
                           ),
                           h('div', { style: S.row },
                             h('span', { style: Object.assign({}, S.label, { minWidth: '74px' }) }, '步数'),
@@ -4218,7 +4560,7 @@ function versionsOf(jobId) {
                             }),
                           ),
                           h('div', { style: S.row },
-                            h('button', { style: Object.assign({}, buttonStyle, { borderColor: 'rgba(106,168,255,.6)', color: '#8fbcff', fontWeight: 600 }), onClick: saveWfValues }, '💾 保存参数'),
+                            h('button', { style: Object.assign({}, buttonStyle, { borderColor: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 60%, transparent)', color: 'var(--dsw-alias-brand-primary)', fontWeight: 600 }), onClick: saveWfValues }, '💾 保存参数'),
                             h('button', { style: buttonStyle, onClick: async () => {
                               const v = await post('/workflow-values', { file: wfValues.__file }).catch(() => null)
                               if (v?.ok) setWfValues(Object.assign({}, v.values, { __file: wfValues.__file }))
@@ -4226,30 +4568,30 @@ function versionsOf(jobId) {
                             } }, '↻ 重新读取'),
                           ),
                         ) : wfValues && wfValues.__error
-                          ? h('div', { style: { fontSize: '12px', color: '#f2686b', marginBottom: '10px' } },
+                          ? h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-state-error-primary)', marginBottom: '10px' } },
                               '读参数失败：' + wfValues.__error + '　（多半是宿主没重启，重启 DSH 后再试）')
-                          : h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '10px' } }, '读取参数中…'),
+                          : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } }, '读取参数中…'),
 
                         h('div', { style: { fontSize: '12px', fontWeight: 600, marginBottom: '6px' } },
                           'LoRA（' + (detail.bindings?.loras?.length ?? 0) + ' 个）'),
                         (detail.bindings?.loras ?? []).length
                           ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-                              (detail.bindings.loras).map(lora => h('div', { key: lora.node, style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', padding: '6px 8px', borderRadius: '8px', background: lora.enabled === false ? 'rgba(0,0,0,.2)' : 'rgba(106,168,255,.07)' } },
+                              (detail.bindings.loras).map(lora => h('div', { key: lora.node, style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', padding: '6px 8px', borderRadius: '8px', background: lora.enabled === false ? 'rgba(0,0,0,.2)' : 'color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, transparent)' } },
                                 h('input', { type: 'checkbox', checked: lora.enabled !== false, title: '启用 / 停用这个 LoRA', onChange: e => patchLora(lora.node, { enabled: e.target.checked }) }),
                                 loraList.length
                                   ? h('select', { value: lora.name || '', style: Object.assign({}, S.input, { flex: 1, minWidth: '170px', fontSize: '12px' }), onChange: e => patchLora(lora.node, { name: e.target.value }) },
-                                      h('option', { value: lora.name || '', style: { color: '#12161c', background: '#e9eef6' } }, lora.name || '（未选）'),
-                                      loraList.filter(n => n !== lora.name).map(n => h('option', { key: n, value: n, style: { color: '#12161c', background: '#e9eef6' } }, n)))
+                                      h('option', { value: lora.name || '' }, lora.name || '（未选）'),
+                                      loraList.filter(n => n !== lora.name).map(n => h('option', { key: n, value: n }, n)))
                                   : h('input', { type: 'text', value: lora.name || '', placeholder: 'lora 文件名', style: Object.assign({}, S.input, { flex: 1, minWidth: '170px', fontSize: '12px' }), onChange: e => patchLora(lora.node, { name: e.target.value }) }),
-                                h('span', { style: { fontSize: '11px', color: '#9aa3b2' } }, '权重'),
+                                h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, '权重'),
                                 h('input', { type: 'number', step: '0.05', value: lora.strengthModel ?? 1, style: Object.assign({}, S.input, { width: '76px', fontSize: '12px' }), onChange: e => patchLora(lora.node, { strengthModel: Number(e.target.value), strengthClip: Number(e.target.value) }) }),
-                                h('span', { style: { fontSize: '11px', color: '#9aa3b2' } }, '节点 ' + lora.node),
+                                h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, '节点 ' + lora.node),
                               )))
-                          : h('div', { style: { fontSize: '12px', color: '#9aa3b2' } }, '这张工作流里没有 LoRA 节点（没有 LoraLoader）'),
+                          : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '这张工作流里没有 LoRA 节点（没有 LoraLoader）'),
                       ),
                 ) : null,
               )
-            }) : h('div', { style: { fontSize: '12px', color: '#9aa3b2', padding: '12px' } }, '还没有工作流。点「📥 导入工作流」或往插件目录的 workflows/ 里丢 JSON 再点重新扫描。'),
+            }) : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', padding: '12px' } }, '还没有工作流。点「📥 导入工作流」或往插件目录的 workflows/ 里丢 JSON 再点重新扫描。'),
           ),
         )
       }
@@ -4469,9 +4811,9 @@ function versionsOf(jobId) {
                 style: Object.assign({}, buttonStyle, {
                   fontSize: '12px',
                   padding: '5px 12px',
-                  borderColor: on ? 'rgba(106,168,255,.85)' : 'rgba(120,140,170,.35)',
-                  background: on ? 'rgba(106,168,255,.18)' : 'transparent',
-                  color: on ? '#cfe2ff' : '#9aa3b2',
+                  borderColor: on ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 85%, transparent)' : 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 35%, transparent)',
+                  background: on ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent)' : 'transparent',
+                  color: on ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-tertiary)',
                 }),
                 onClick: () => {
                   setWbBook(book.key)
@@ -4482,23 +4824,23 @@ function versionsOf(jobId) {
               }, '📖 ' + (book.name || book.key) + '（' + (book.count ?? 0) + ' 条）')
             }),
           ),
-          h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '10px' } },
+          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } },
             '启用的常驻条目会作为画图规则发送给规划模型；关键词条目仅在正文命中关键词时发送。旧条目默认常驻。可逐条调整触发方式和适用渠道。'),
-          h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginBottom: '10px' } },
+          h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } },
             '固定规则会前置，方便服务端复用；规划仍通过 DSH 模型接口完成。'),
           h('div', { style: S.row },
             h('button', { style: buttonStyle, onClick: () => setWbImportOpen(v => !v) }, wbImportOpen ? '✖ 收起导入' : '📥 导入世界书'),
             h('button', { style: buttonStyle, onClick: addEntry }, '➕ 新条目'),
             h('button', { style: buttonStyle, onClick: exportWb }, '📤 导出（复制 JSON）'),
             h('button', { style: buttonStyle, onClick: refreshWb }, '🔄 刷新'),
-            wbNote ? h('span', { style: { fontSize: '12px', color: /失败/.test(wbNote) ? '#f2686b' : '#8bd48b' } }, wbNote) : null,
+            wbNote ? h('span', { style: { fontSize: '12px', color: /失败/.test(wbNote) ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-success-primary)' } }, wbNote) : null,
           ),
 
-          wbImportOpen ? h('div', { style: { marginTop: '10px', padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(120,140,170,.22)' } },
-            h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '8px' } },
+          wbImportOpen ? h('div', { style: { marginTop: '10px', padding: '12px', borderRadius: '10px', background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 3%, transparent)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)' } },
+            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } },
               '可以直接导入 SillyTavern 的世界书 JSON（选文件），也可以把 JSON / 纯文本粘在下面。纯文本会按空行切成条目。'),
             h('div', { style: S.row },
-              h('label', { style: { padding: '6px 14px', fontSize: '12px', borderRadius: '8px', border: '1px solid rgba(106,168,255,.6)', color: '#8fbcff', cursor: 'pointer', background: 'rgba(106,168,255,.1)' } },
+              h('label', { style: { padding: '6px 14px', fontSize: '12px', borderRadius: '8px', border: '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 60%, transparent)', color: 'var(--dsw-alias-brand-primary)', cursor: 'pointer', background: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent)' } },
                 '📁 选文件（.json / .txt）',
                 h('input', { type: 'file', accept: '.json,.txt,application/json,text/plain', style: { display: 'none' }, onChange: pickWbFile }),
               ),
@@ -4513,7 +4855,7 @@ function versionsOf(jobId) {
           h('div', { style: { marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' } },
             list.length ? list.map(entry => h('div', {
               key: entry.index,
-              style: { borderRadius: '10px', border: '1px solid rgba(120,140,170,.28)', background: entry.enabled === false ? '#131820' : '#1a2029', color: '#e8edf5', padding: '9px 11px' },
+              style: { borderRadius: '10px', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 28%, transparent)', background: entry.enabled === false ? 'var(--dsw-specific-input-major)' : 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', padding: '9px 11px' },
             },
               h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
                 h('input', {
@@ -4521,9 +4863,9 @@ function versionsOf(jobId) {
                   title: '启用 / 停用这条',
                   onChange: e => patchEntry(entry.index, { enabled: e.target.checked }),
                 }),
-                h('span', { style: { flex: 1, minWidth: 0, fontSize: '13px', color: entry.enabled === false ? '#9aa3b2' : '#dbe3ee', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                h('span', { style: { flex: 1, minWidth: 0, fontSize: '13px', color: entry.enabled === false ? 'var(--dsw-alias-label-tertiary)' : 'var(--dsw-alias-label-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
                   String(entry.index + 1) + '. ' + (entry.comment || '未命名')),
-                h('span', { style: { fontSize: '11px', color: '#9aa3b2', flexShrink: 0 } },
+                h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', flexShrink: 0 } },
                   (entry.length ?? String(entry.content ?? '').length) + ' 字'),
                 h('button', {
                   style: Object.assign({}, buttonStyle, { fontSize: '11px', padding: '2px 8px' }),
@@ -4531,21 +4873,21 @@ function versionsOf(jobId) {
                   onClick: () => setWbOpen(current => ({ ...current, [entry.index]: !current[entry.index] })),
                 }, wbOpen[entry.index] ? '▾ 收起' : '▸ 内容'),
                 h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px' }), onClick: () => setWbEditing(wbEditing === entry.index ? -1 : entry.index) }, wbEditing === entry.index ? '收起' : '编辑'),
-                h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px', borderColor: 'rgba(242,104,107,.6)', color: '#f2686b' }), onClick: () => { if (confirm('删除这条世界书条目？')) patchEntry(entry.index, null, true) } }, '删'),
+                h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px', borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent)', color: 'var(--dsw-alias-state-error-primary)' }), onClick: () => { if (confirm('删除这条世界书条目？')) patchEntry(entry.index, null, true) } }, '删'),
               ),
               wbOpen[entry.index] && wbEditing !== entry.index ? h('div', {
                 style: {
                   marginTop: '8px',
                   padding: '10px 12px',
                   borderRadius: '8px',
-                  background: '#141a22',
-                  color: '#c8d2df',
+                  background: 'var(--dsw-specific-input-major)',
+                  color: 'var(--dsw-alias-label-primary)',
                   fontSize: '12px',
                   lineHeight: '1.75',
                   whiteSpace: 'pre-wrap',
                   maxHeight: '340px',
                   overflow: 'auto',
-                  border: '1px solid rgba(120,140,170,.22)',
+                  border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)',
                 },
               }, String(entry.content ?? '').trim() || '（这条还没有内容）') : null,
               wbEditing === entry.index ? h('div', { style: { marginTop: '8px' } },
@@ -4559,7 +4901,7 @@ function versionsOf(jobId) {
                   style: ta,
                   onChange: e => patchEntrySoon(entry.index, { content: e.target.value }, '内容'),
                 }),
-                h('div', { style: { marginTop: '10px', padding: '9px', borderRadius: '8px', background: '#141a22', color: '#e8edf5', border: '1px solid rgba(120,140,170,.24)' } },
+                h('div', { style: { marginTop: '10px', padding: '9px', borderRadius: '8px', background: 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 24%, transparent)' } },
                   h('div', { style: { fontSize: '12px', marginBottom: '6px' } }, '触发方式'),
                   h('label', { style: Object.assign({}, S.row, { fontSize: '12px', marginBottom: '6px' }) },
                     h('input', { type: 'radio', name: 'wb-activation-' + entry.index, value: 'always', checked: (wbDrafts[entry.index]?.activation ?? entry.activation ?? 'always') === 'always', onChange: () => patchEntry(entry.index, { activation: 'always' }, false, '触发方式') }),
@@ -4569,13 +4911,13 @@ function versionsOf(jobId) {
                     '关键词触发：正文命中下方任一词时发送（填了附加条件就还要再命中一个）'),
                   (wbDrafts[entry.index]?.activation ?? entry.activation) === 'keywords' ? h('div', { style: { marginTop: '6px' } },
                     h('textarea', { 'aria-label': '触发关键词 ' + entry.index, value: wbDrafts[entry.index]?.keywords ?? keywordValues(entry).join('，'), placeholder: '例如：雨夜，咖啡馆（逗号、中文逗号或换行分隔）', style: Object.assign({}, ta, { minHeight: '54px' }), onChange: e => patchEntrySoon(entry.index, { keywords: e.target.value.split(/[，,\n\r]+/).map(value => value.trim()).filter(Boolean) }, '关键词', { keywords: e.target.value }) }),
-                    (wbDrafts[entry.index]?.keywords ?? keywordValues(entry).join('，')).split(/[，,\n\r]+/).map(value => value.trim()).filter(Boolean).length === 0 ? h('div', { role: 'alert', style: { color: '#f2a36b', fontSize: '11px', marginTop: '4px' } }, '没有关键词：此条目不会注入。请填写至少一个词，或改为常驻。') : null,
-                    h('div', { style: { fontSize: '11px', color: '#9aa3b2', margin: '8px 0 3px' } }, '附加条件 AND（可留空）：主关键词命中后，还要命中这里的任意一个词，才注入这条'),
+                    (wbDrafts[entry.index]?.keywords ?? keywordValues(entry).join('，')).split(/[，,\n\r]+/).map(value => value.trim()).filter(Boolean).length === 0 ? h('div', { role: 'alert', style: { color: 'var(--dsw-alias-state-warning-primary)', fontSize: '11px', marginTop: '4px' } }, '没有关键词：此条目不会注入。请填写至少一个词，或改为常驻。') : null,
+                    h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', margin: '8px 0 3px' } }, '附加条件 AND（可留空）：主关键词命中后，还要命中这里的任意一个词，才注入这条'),
                     h('textarea', { 'aria-label': '附加条件 ' + entry.index, value: draftKeywordText(wbDrafts, entry.index, entry, 'andKeywords'), placeholder: '例如：精液，射精（留空 = 主关键词命中就注入）', style: Object.assign({}, ta, { minHeight: '44px' }), onChange: e => patchEntrySoon(entry.index, { andKeywords: e.target.value.split(/[，,\n\r]+/).map(value => value.trim()).filter(Boolean) }, '附加条件', { andKeywords: e.target.value }) }),
-                    andKeywordValues(entry).length ? h('div', { style: { fontSize: '11px', color: '#8fb6d9', marginTop: '4px' } }, '已设 ' + andKeywordValues(entry).length + ' 个附加条件：命中主关键词但没有命中它们时，这条不会注入。') : null,
+                    andKeywordValues(entry).length ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-brand-primary)', marginTop: '4px' } }, '已设 ' + andKeywordValues(entry).length + ' 个附加条件：命中主关键词但没有命中它们时，这条不会注入。') : null,
                   ) : null,
                   h('div', { style: { fontSize: '12px', margin: '10px 0 4px' } }, '适用生图渠道'),
-                  h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginBottom: '5px' } }, '未勾选任何渠道表示全部渠道。'),
+                  h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '5px' } }, '未勾选任何渠道表示全部渠道。'),
                   h('div', { style: Object.assign({}, S.row, { gap: '8px 14px' }) }, providers.map(([id, label]) => h('label', { key: id, style: { display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px' } },
                     h('input', { type: 'checkbox', checked: backendValues(entry).includes(id), onChange: e => {
                       const next = new Set(backendValues(entry))
@@ -4584,14 +4926,14 @@ function versionsOf(jobId) {
                       patchEntry(entry.index, { backends }, false, '适用渠道')
                     } }), label))),
                 ),
-                h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginTop: '4px' } }, '改动即时保存。'),
+                h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '4px' } }, '改动即时保存。'),
               ) : null,
-            )) : h('div', { style: { fontSize: '12px', color: '#9aa3b2', padding: '12px' } },
+            )) : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', padding: '12px' } },
               '还没有条目。可以点「📥 导入世界书」，或「➕ 新条目」自己写。'),
           ),
-          h('details', { style: { marginTop: '14px', borderTop: '1px solid rgba(120,140,170,.2)', paddingTop: '10px', color: '#dbe3ee' } },
-            h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: '#b8c5d3' } }, '上次规划的诊断'),
-            context ? h('div', { style: { marginTop: '8px', fontSize: '11px', color: '#b8c5d3', lineHeight: 1.6 } },
+          h('details', { style: { marginTop: '14px', borderTop: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)', paddingTop: '10px', color: 'var(--dsw-alias-label-primary)' } },
+            h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' } }, '上次规划的诊断'),
+            context ? h('div', { style: { marginTop: '8px', fontSize: '11px', color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.6 } },
               h('div', { style: { marginBottom: '8px' } }, '轮次 ' + (context.turn ?? '—') + ' · 渠道 ' + (providers.find(([id]) => id === context.backend)?.[1] || context.backend || '—') + ' · 时间 ' + (context.at || '—')),
               h('div', {}, '字符统计：固定 ' + (context.staticChars ?? '—') + ' · 动态 ' + (context.dynamicChars ?? '—') + ' · 正文 ' + (context.bodyChars ?? '—')),
               h('div', { style: { marginTop: '8px' } }, '已纳入条目'),
@@ -4604,7 +4946,7 @@ function versionsOf(jobId) {
                 : h('div', {}, '没有未纳入条目。'),
               h('div', { style: { marginTop: '8px' } }, '本轮识别角色'),
               Array.isArray(context.includedCharacters) && context.includedCharacters.length ? context.includedCharacters.map((item, i) => h('div', { key: 'character-' + i }, diagnosticText(item))) : h('div', {}, '无角色。'),
-            ) : h('div', { style: { marginTop: '8px', fontSize: '11px', color: '#9aa3b2' } }, '暂无诊断记录。完成一轮规划后，这里会显示实际纳入和排除的规则及原因。'),
+            ) : h('div', { style: { marginTop: '8px', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, '暂无诊断记录。完成一轮规划后，这里会显示实际纳入和排除的规则及原因。'),
           ),
         )
       }
@@ -4617,9 +4959,9 @@ function versionsOf(jobId) {
             key: job.id,
             style: {
               position: 'relative', borderRadius: '10px', overflow: 'hidden',
-              background: 'rgba(255,255,255,.03)',
-              border: gallerySelect && galleryPicked[job.id] ? '2px solid #6aa8ff' : '1px solid rgba(120,140,170,.2)',
-              boxShadow: gallerySelect && galleryPicked[job.id] ? '0 0 0 3px rgba(106,168,255,.25)' : 'none',
+              background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 3%, transparent)',
+              border: gallerySelect && galleryPicked[job.id] ? '2px solid var(--dsw-alias-brand-primary)' : '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)',
+              boxShadow: gallerySelect && galleryPicked[job.id] ? '0 0 0 3px color-mix(in srgb, var(--dsw-alias-brand-primary) 25%, transparent)' : 'none',
             },
           },
             h('img', {
@@ -4628,7 +4970,7 @@ function versionsOf(jobId) {
               decoding: 'async',
               alt: job.label || '图',
               title: '左键看大图　右键出菜单',
-              style: { display: 'block', width: '100%', aspectRatio: '3 / 4', objectFit: 'cover', cursor: 'zoom-in', background: '#1a1d24' },
+              style: { display: 'block', width: '100%', aspectRatio: '3 / 4', objectFit: 'cover', cursor: 'zoom-in', background: 'var(--dsw-specific-input-major)' },
               // 左键：批量模式下 = 勾选；平时 = 看大图（带上整库，能左右翻）
               onClick: function () {
                 if (gallerySelect) { setGalleryPicked(cur => Object.assign({}, cur, { [job.id]: !cur[job.id] })); return }
@@ -4636,7 +4978,7 @@ function versionsOf(jobId) {
                 // 用「所有历史图」作为翻页列表，并定位到点的这一张 —— 这样打开第一张就能一路翻到最后
                 const all = done.map(function (j) { return j.id })
                 const at = Math.max(0, all.indexOf(job.id))
-                openImageOverlay({ open: true, jobIds: all.length ? all : [job.id], note: '历史图（' + (at + 1) + '/' + all.length + '）', working: false, index: at })
+                openImageOverlay({ open: true, jobIds: all.length ? all : [job.id], note: '画廊（' + (at + 1) + '/' + all.length + '）', working: false, index: at })
               },
               // 右键：出菜单
               onContextMenu: function (event) {
@@ -4648,7 +4990,7 @@ function versionsOf(jobId) {
                     { icon: '🖼', label: '查看大图', onClick: function () {
                         const all = done.map(function (j) { return j.id })
                         const at = Math.max(0, all.indexOf(job.id))
-                        openImageOverlay({ open: true, jobIds: all.length ? all : [job.id], note: '历史图（' + (at + 1) + '/' + all.length + '）', working: false, index: at })
+                        openImageOverlay({ open: true, jobIds: all.length ? all : [job.id], note: '画廊（' + (at + 1) + '/' + all.length + '）', working: false, index: at })
                       } },
                     { icon: '✏️', label: '改提示词重画', onClick: function () {
                         if (typeof openEditorFor === 'function') openEditorFor(job.id, job.label)
@@ -4666,7 +5008,7 @@ function versionsOf(jobId) {
               },
             }),
             gallerySelect ? h('div', {
-              style: { position: 'absolute', top: '6px', left: '6px', width: '24px', height: '24px', borderRadius: '6px', border: '1px solid rgba(255,255,255,.5)', background: galleryPicked[job.id] ? '#6aa8ff' : 'rgba(0,0,0,.5)', color: '#fff', fontSize: '15px', lineHeight: '22px', textAlign: 'center' },
+              style: { position: 'absolute', top: '6px', left: '6px', width: '24px', height: '24px', borderRadius: '6px', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 50%, transparent)', background: galleryPicked[job.id] ? 'var(--dsw-alias-brand-primary)' : 'rgba(0,0,0,.5)', color: 'var(--dsw-alias-label-primary)', fontSize: '15px', lineHeight: '22px', textAlign: 'center' },
             }, galleryPicked[job.id] ? '✓' : '') : null,
             !gallerySelect ? h('button', {
               type: 'button',
@@ -4674,22 +5016,45 @@ function versionsOf(jobId) {
               onClick: function (e) { e.stopPropagation(); deleteJob(job.id) },
               style: {
                 position: 'absolute', top: '6px', right: '6px', width: '26px', height: '26px',
-                borderRadius: '7px', border: '1px solid rgba(255,255,255,.25)',
-                background: 'rgba(0,0,0,.55)', color: '#ffb3b5', cursor: 'pointer',
+                borderRadius: '7px', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 25%, transparent)',
+                background: 'rgba(0,0,0,.55)', color: 'var(--dsw-alias-state-error-primary)', cursor: 'pointer',
                 fontSize: '13px', lineHeight: 1, padding: 0,
               },
             }, '🗑') : null,
-            h('div', { style: { padding: '6px 8px', fontSize: '11px', color: '#9aa3b2', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+            h('div', { style: { padding: '6px 8px', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
               (job.label || '未命名') + ' · ' + (job.size || '')),
           )
         })
+        const legacyTiles = legacyImages.map(function (item, index) {
+          return h('button', { key: item.url, type: 'button', title: item.description || '', onClick: function () { setLegacyViewer(index) },
+            style: { padding: 0, textAlign: 'left', cursor: 'zoom-in', borderRadius: '10px', overflow: 'hidden', background: 'transparent', color: 'inherit', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)' } },
+            h('img', { src: item.url, loading: 'lazy', decoding: 'async', alt: item.description || '插图', style: { display: 'block', width: '100%', aspectRatio: '3 / 4', objectFit: 'cover', background: 'var(--dsw-specific-input-major)' } }),
+            h('div', { style: { padding: '6px 8px', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+              '第 ' + item.turn + ' 轮 · 早期插图'))
+        })
+        // 按局分组：插件图按出图时的局，早期插图按 Tavern 记录的局；组内与组间都是新的在前。
+        const groups = new Map()
+        const groupOf = key => { if (!groups.has(key)) groups.set(key, { key, items: [], legacyTitle: '', deleted: false }); return groups.get(key) }
+        done.forEach((job, index) => groupOf(job.gameId || '').items.push({ at: Number(job.completedAt || job.createdAt) || 0, node: tiles[index] }))
+        legacyImages.forEach((item, index) => {
+          const group = groupOf(item.gameId || 'legacy:' + item.gameTitle)
+          group.legacyTitle = group.legacyTitle || item.gameTitle
+          group.deleted = group.deleted || item.gameDeleted
+          group.items.push({ at: Number(item.createdAt) || 0, node: legacyTiles[index] })
+        })
+        for (const group of groups.values()) group.items.sort((a, b) => b.at - a.at)
+        const ordered = [...groups.values()].sort((a, b) => (b.items[0]?.at || 0) - (a.items[0]?.at || 0))
+        const groupTitle = group => group.key === '' ? '未归属对局（在设置里试画的图）'
+          : (gameNames[group.key]?.title || gameNames[group.key]?.cardName || group.legacyTitle || '已删除的对局') + (group.deleted ? '（已删除）' : '')
+        const viewing = legacyViewer === null ? null : legacyImages[legacyViewer]
+        const step = delta => setLegacyViewer(index => (index + delta + legacyImages.length) % legacyImages.length)
         return h('div', { style: S.card },
-          h('div', { style: { fontSize: '13px', marginBottom: '4px' } }, '历史图片（' + done.length + ' / ' + historyJobs.length + ' 张）'),
-          h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '10px' } }, '左键看大图（可以左右翻整个历史库），右键出菜单，鼠标移到图上右上角能直接删。'),
+          h('div', { style: { fontSize: '13px', marginBottom: '4px' } }, '画廊（插件 ' + done.length + ' 张' + (legacyImages.length ? ' · 早期 ' + legacyImages.length + ' 张' : '') + '）'),
+          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } }, '左键看大图（可以左右翻整个历史库），右键出菜单，鼠标移到图上右上角能直接删。'),
           h('div', { style: S.row },
             h('button', { style: buttonStyle, onClick: function () { setHistoryNote('读取中…'); setHistoryTick(n => n + 1) } }, '🔄 刷新'),
             h('button', { style: buttonStyle, onClick: function () {
-              if (typeof openImageOverlay === 'function' && done.length) openImageOverlay({ open: true, jobIds: done.map(function (job) { return job.id }), note: '全部历史（◀ ▶ 翻页）', working: false, index: 0 })
+              if (typeof openImageOverlay === 'function' && done.length) openImageOverlay({ open: true, jobIds: done.map(function (job) { return job.id }), note: '全部插件图（◀ ▶ 翻页）', working: false, index: 0 })
             } }, '🖼 全部打开'),
             h('button', { style: buttonStyle, onClick: function () {
               setGallerySelect(v => !v); setGalleryPicked({})
@@ -4701,13 +5066,25 @@ function versionsOf(jobId) {
             } }, '全选') : null,
             gallerySelect ? h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px' }), onClick: function () { setGalleryPicked({}) } }, '取消全选') : null,
             gallerySelect ? h('button', {
-              style: Object.assign({}, buttonStyle, { borderColor: 'rgba(242,104,107,.7)', color: '#f2686b' }),
+              style: Object.assign({}, buttonStyle, { borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 70%, transparent)', color: 'var(--dsw-alias-state-error-primary)' }),
               onClick: function () { deleteJobBatch(Object.keys(galleryPicked).filter(k => galleryPicked[k])) },
             }, '🗑 删除选中（' + Object.keys(galleryPicked).filter(k => galleryPicked[k]).length + '）') : null,
-            historyNote ? h('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, historyNote) : null,
+            historyNote ? h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, historyNote) : null,
           ),
-          h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px', marginTop: '12px' } },
-            tiles.length ? tiles : h('div', { style: { fontSize: '12px', color: '#9aa3b2', padding: '14px' } }, historyNote || '还没有图片')),
+          ordered.length ? ordered.map(group => h('details', { key: group.key, open: true, style: { marginTop: '14px' } },
+            h('summary', { style: { cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } },
+              groupTitle(group), h('span', { style: { fontWeight: 400, fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginLeft: '8px' } }, group.items.length + ' 张')),
+            h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px', marginTop: '10px' } }, group.items.map(item => item.node))))
+            : historyNote ? null : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', padding: '14px 0 0' } }, '还没有图片'),
+          legacyTiles.length ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '14px' } }, '「早期插图」是换用插件之前 Tavern 自带生图画的，只读；要删除请到对应那局的「画廊」。') : null,
+          viewing ? h('div', { role: 'dialog', 'aria-label': '查看早期插图', tabIndex: -1,
+            ref: node => { if (node) node.focus() },
+            onKeyDown: e => { if (e.key === 'Escape') setLegacyViewer(null); else if (e.key === 'ArrowLeft') step(-1); else if (e.key === 'ArrowRight') step(1) },
+            onClick: e => { if (e.target === e.currentTarget) setLegacyViewer(null) },
+            style: { position: 'fixed', inset: 0, zIndex: 2147483000, background: 'rgba(0,0,0,.82)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', outline: 'none' } },
+            h('img', { src: viewing.url, alt: viewing.description || '插图', style: { maxWidth: '92vw', maxHeight: '84vh', objectFit: 'contain', borderRadius: '8px' } }),
+            h('div', { style: { color: '#eee', fontSize: '12px', maxWidth: '80vw', textAlign: 'center' } },
+              (legacyViewer + 1) + ' / ' + legacyImages.length + ' · ' + (viewing.gameTitle || '未命名的局') + ' · 第 ' + viewing.turn + ' 轮' + (viewing.description ? ' · ' + viewing.description : '') + '　（← → 翻页，Esc 关闭）')) : null,
         )
       }
 
@@ -4761,87 +5138,38 @@ function versionsOf(jobId) {
         const ef = String(config[effortKey] || '')
         const models = (llmModels[pv] || []).filter(m => !onlyVision || m.vision)
         const reason = llmReasoning[pv + '/' + md]
-        const optStyle = { color: '#12161c', background: '#e9eef6' }
+        const optStyle = {}
         const set = (patch) => setData(current => Object.assign({}, current, { config: Object.assign({}, current?.config || {}, patch) }))
-        return h('div', { style: { marginBottom: '8px' } },
-          h('div', { style: S.row },
-            h('span', { style: Object.assign({}, S.label, { minWidth: '86px' }) }, label),
+        const select = extra => Object.assign({}, S.input, { width: '100%', minWidth: 0, boxSizing: 'border-box' }, extra || {})
+        return h('div', { style: { marginTop: '14px' } },
+          h('div', { className: 'dti-field-label' }, label, hint ? h('small', null, hint) : null),
+          h('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.4fr) minmax(88px, .6fr)', gap: '8px' } },
             h('select', {
-              value: pv, style: Object.assign({}, S.input, { flex: 1, minWidth: '150px' }),
+              'aria-label': label + ' 服务商', value: pv, style: select(),
               onChange: e => { const v = e.target.value; set({ [providerKey]: v, [modelKey]: '' }); save({ [providerKey]: v, [modelKey]: '' }); loadModels(v) },
             },
-              h('option', { value: '', style: optStyle }, '（不指定，跟随 Tavern 后台模型）'),
-              llmProviders.map(p => h('option', { key: p.id, value: p.id, style: optStyle }, p.name + '（' + p.id + '）')),
+              h('option', { value: '', style: optStyle }, '跟随 Tavern'),
+              llmProviders.map(p => h('option', { key: p.id, value: p.id, style: optStyle }, p.name)),
               pv && !llmProviders.some(p => p.id === pv) ? h('option', { value: pv, style: optStyle }, pv + '（当前值）') : null,
             ),
             h('select', {
-              value: md, style: Object.assign({}, S.input, { flex: 1, minWidth: '150px' }),
+              'aria-label': label + ' 模型', value: md, style: select(),
               onChange: e => { const v = e.target.value; set({ [modelKey]: v }); save({ [modelKey]: v }); if (v) loadReasoning(pv, v) },
               disabled: !pv,
             },
-              h('option', { value: '', style: optStyle }, pv ? '（选一个模型）' : '（先选提供商）'),
-              models.map(m => h('option', { key: m.id, value: m.id, style: optStyle }, m.name + (onlyVision ? (m.vision ? '　👁' : '') : '') + (m.id !== m.name ? '　' + m.id : ''))),
+              h('option', { value: '', style: optStyle }, pv ? '选择模型' : '跟随 Tavern 后台模型'),
+              models.map(m => h('option', { key: m.id, value: m.id, style: optStyle }, m.name + (onlyVision && m.vision ? '　👁' : ''))),
               md && !models.some(m => m.id === md) ? h('option', { value: md, style: optStyle }, md + '（当前值）') : null,
             ),
-          ),
-          h('div', { style: S.row },
-            h('span', { style: Object.assign({}, S.label, { minWidth: '86px' }) }, '推理等级'),
             h('select', {
-              value: ef, style: Object.assign({}, S.input, { width: '170px' }),
+              'aria-label': label + ' 推理等级', title: '推理等级', value: ef, style: select(),
               onChange: e => { set({ [effortKey]: e.target.value }); save({ [effortKey]: e.target.value }) },
               disabled: !reason,
             },
-              h('option', { value: '', style: optStyle }, reason ? '默认' : '（选模型后可选）'),
-              (reason?.efforts || []).map(x => h('option', { key: x.id, value: x.id, style: optStyle }, x.name + (x.id !== x.name ? '　' + x.id : ''))),
+              h('option', { value: '', style: optStyle }, '默认推理'),
+              (reason?.efforts || []).map(x => h('option', { key: x.id, value: x.id, style: optStyle }, x.name)),
             ),
-            hint ? h('span', { style: { fontSize: '11px', color: '#9aa3b2' } }, hint) : null,
           ),
-        )
-      }
-
-      /**
-       * 首次配置引导：新装的人打开设置页，按三步走就能用。
-       * 三件都办好了就自己消失。
-       */
-      function SetupGuide() {
-        const external = imageBackend !== 'comfyui'
-        const hasUrl = external ? Boolean(String(selectedChannel?.baseUrl ?? '').trim()) : Boolean(String(config.comfyUrl ?? '').trim())
-        const online = external ? externalConnected : Boolean(comfyStatus?.ok)
-        const simpleMode = !external && config.comfyMode === 'simple'
-        const simple = config.comfySimple || {}
-        const simpleTemplate = String(simple.template || 'checkpoint')
-        const simpleModel = simpleTemplate === 'checkpoint' ? simple.checkpoint : simple.unet
-        const simpleCapability = simpleInfo?.templates?.[simpleTemplate]
-        const simpleReady = Boolean(String(simpleModel || '').trim()) && (!simpleCapability || simpleCapability.available === true)
-        const hasWorkflow = external || (simpleMode ? simpleReady : (data.workflows ?? []).some(w => !w.error))
-        const hasModel = Boolean(config.plannerEnabled !== false)
-        // 前两步没做完才显示
-        if (hasUrl && online && hasWorkflow) return null
-        if (external && hasUrl && hasWorkflow && hasModel && (!externalStatus || externalStatus.status === 'configured' || externalConnected)) return null
-        const step = (n, text, done, hint) => h('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' } },
-          h('span', {
-            style: {
-              flexShrink: 0, width: '18px', height: '18px', borderRadius: '50%', fontSize: '11px', lineHeight: '18px', textAlign: 'center',
-              background: done ? 'rgba(139,212,139,.2)' : 'rgba(226,185,59,.18)',
-              color: done ? '#8bd48b' : '#e2b93b',
-            },
-          }, done ? '✓' : String(n)),
-          h('div', null,
-            h('div', { style: { fontSize: '13px', color: done ? '#8bd48b' : '#dfe4ec' } }, text),
-            hint ? h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginTop: '2px' } }, hint) : null,
-          ),
-        )
-        return h('div', { style: Object.assign({}, S.card, { border: '1px solid rgba(226,185,59,.45)' }) },
-          h('div', { style: { fontSize: '13px', fontWeight: 600, marginBottom: '8px', color: '#e2b93b' } }, '还没配置好 —— 三步就能用'),
-          step(1, external ? '配置图像提供商渠道' : '填 ComfyUI 地址并测试连接', external ? hasUrl : hasUrl && online,
-            external ? (online ? '渠道探测成功。' : externalStatus?.checking ? '正在探测渠道…' : externalStatus?.status === 'configured' ? ('已配置但无法安全探测：' + (externalStatus.message || '请在服务商侧确认模型与权限。')) : externalStatus ? ('探测未通过：' + (externalStatus.message || externalStatus.error || '检查地址和鉴权。')) : '在「生图规划」标签页选择提供商，填写 API 地址、模型和鉴权，然后保存并测试。') : (online ? ('已连上 ' + (comfyStatus?.version ? 'ComfyUI ' + comfyStatus.version : 'ComfyUI')) : '在「生图规划」标签页上面的「生图后端」里填，然后点「测试连接与鉴权」')),
-          external ? null : simpleMode
-            ? step(2, '选择简单模式模板和模型', simpleReady,
-                simpleCapability?.reason || '在「画风」标签页打开简单模式、刷新模型列表并选择模型；不需要导入 JSON。')
-            : step(2, '导入一个工作流并设为默认', hasWorkflow,
-                '在「画风」标签页里，点「📥 导入工作流」，选 ComfyUI 用 API 格式导出的 JSON；也可以切换到简单模式而不导入 JSON。'),
-          step(external ? 2 : 3, '选规划模型（不选就跟随 Tavern 后台模型）', hasModel,
-            '在「生图规划」标签页的「规划模型」下拉里选；想画 NSFW 就选自己的渠道模型'),
         )
       }
 
@@ -4875,7 +5203,7 @@ function versionsOf(jobId) {
           width: '100%', minHeight: hgt, fontFamily: 'ui-monospace, Consolas, monospace',
           lineHeight: '1.6', resize: 'vertical', boxSizing: 'border-box', fontSize: '12px',
         })
-        const optStyle = { color: '#12161c', background: '#e9eef6' }
+        const optStyle = {}
         // 每套画风预设自己的生成参数（空 = 跟渠道设置）
         const PRESET_SAMPLERS = [['k_euler_ancestral', 'Euler Ancestral'], ['k_euler', 'Euler'], ['k_dpmpp_2m', 'DPM++ 2M'], ['k_dpmpp_2s_ancestral', 'DPM++ 2S Anc'], ['k_dpmpp_sde', 'DPM++ SDE'], ['k_dpmpp_2m_sde', 'DPM++ 2M SDE'], ['ddim_v3', 'DDIM'], ['k_lms', 'LMS'], ['k_heun', 'Heun'], ['k_dpm_2', 'DPM2'], ['k_dpm_2_ancestral', 'DPM2 Anc']]
         const PRESET_NOISE = [['karras', 'Karras'], ['native', 'Native'], ['exponential', 'Exponential'], ['polyexponential', 'Polyexponential']]
@@ -4889,10 +5217,10 @@ function versionsOf(jobId) {
         }
         const PARAM_ROW = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px 12px' }
         const paramGroupTitle = (text, first) => h('div', {
-          style: { fontSize: '11px', letterSpacing: '.02em', color: '#7f8a9c', margin: first ? '0 0 6px' : '12px 0 6px', paddingTop: first ? '0' : '10px', borderTop: first ? 'none' : '1px solid rgba(120,140,170,.14)' },
+          style: { fontSize: '11px', letterSpacing: '.02em', color: 'var(--dsw-alias-label-tertiary)', margin: first ? '0 0 6px' : '12px 0 6px', paddingTop: first ? '0' : '10px', borderTop: first ? 'none' : '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 14%, transparent)' },
         }, text)
         const paramField = (caption, control) => h('div', { style: { display: 'flex', flexDirection: 'column', gap: '5px', minWidth: '0' } },
-          h('div', { style: { fontSize: '11px', color: '#9aa3b2' } }, caption), control)
+          h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, caption), control)
         const paramSelect = (i, p, key, caption, items) => paramField(caption,
           h('select', { value: paramValue(p, key), title: caption + '：留空表示沿用渠道设置', style: Object.assign({}, S.input, { width: '100%', boxSizing: 'border-box' }), onChange: e => setParam(i, p, key, e.target.value === '' ? undefined : e.target.value) },
             h('option', { value: '', style: optStyle }, '跟随渠道'),
@@ -4908,7 +5236,7 @@ function versionsOf(jobId) {
         return h('div', { style: S.card },
           h('div', { style: { fontSize: '13px', marginBottom: '4px' } },
             '画风预设（' + presets.length + ' 套）' + (activeName ? '　当前：' + activeName : '　当前：默认')),
-          h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '10px' } },
+          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '10px' } },
             '每套可以带自己的画师串、风格词和负面词。点左边圆点选中，生成时就用那套；一套都不选就用下面的默认。'),
           h('div', { style: S.row },
             h('button', { style: buttonStyle, onClick: add }, '➕ 新增一套'),
@@ -4919,8 +5247,8 @@ function versionsOf(jobId) {
               key: p.id || i,
               style: {
                 borderRadius: '10px', padding: '10px 12px',
-                border: String(p.id) === active ? '1px solid rgba(106,168,255,.75)' : '1px solid rgba(120,140,170,.22)',
-                background: String(p.id) === active ? '#1b2a3e' : '#1a2029', color: '#e8edf5',
+                border: String(p.id) === active ? '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 75%, transparent)' : '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)',
+                background: String(p.id) === active ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent)' : 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)',
               },
             },
               h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' } },
@@ -4939,23 +5267,23 @@ function versionsOf(jobId) {
                   h('option', { value: 'prefix', style: optStyle }, '放在最前面'),
                   h('option', { value: 'suffix', style: optStyle }, '放在最后面'),
                 ),
-                h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px', borderColor: 'rgba(242,104,107,.6)', color: '#f2686b' }), onClick: () => remove(i) }, '删'),
+                h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px', borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent)', color: 'var(--dsw-alias-state-error-primary)' }), onClick: () => remove(i) }, '删'),
               ),
-              h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginBottom: '4px' } }, '正面：画师串 / 风格词'),
+              h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '4px' } }, '正面：画师串 / 风格词'),
               h('textarea', {
                 value: p.artist || '', placeholder: '(@artist_a:1.1), (@artist_b:1.0), masterpiece, best quality',
                 style: ta('72px'),
                 onChange: e => patch(i, { artist: e.target.value }),
               }),
-              h('div', { style: { fontSize: '11px', color: '#9aa3b2', margin: '6px 0 4px' } }, '这套的负面固定词（会并进负面）'),
+              h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', margin: '6px 0 4px' } }, '这套的负面固定词（会并进负面）'),
               h('textarea', {
                 value: p.negative || '', placeholder: 'worst quality, low quality, bad hands',
                 style: ta('46px'),
                 onChange: e => patch(i, { negative: e.target.value }),
               }),
               h('details', { style: { marginTop: '10px' } },
-                h('summary', { style: { fontSize: '11px', color: '#9aa3b2', cursor: 'pointer', padding: '2px 0' } }, '这套自己的生成参数（采样 / 步数 / CFG / NovelAI 高级…；留空 = 跟随渠道）'),
-                h('div', { style: { marginTop: '8px', padding: '12px 14px', borderRadius: '8px', background: '#151a22', border: '1px solid rgba(120,140,170,.18)' } },
+                h('summary', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', cursor: 'pointer', padding: '2px 0' } }, '这套自己的生成参数（采样 / 步数 / CFG / NovelAI 高级…；留空 = 跟随渠道）'),
+                h('div', { style: { marginTop: '8px', padding: '12px 14px', borderRadius: '8px', background: 'var(--dsw-specific-input-major)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 18%, transparent)' } },
                   paramGroupTitle('采样', true),
                   h('div', { style: PARAM_ROW },
                     paramSelect(i, p, 'sampler', '采样器', PRESET_SAMPLERS),
@@ -4976,9 +5304,9 @@ function versionsOf(jobId) {
                     paramBool(i, p, 'varietyBoost', '多样性（variety_boost）'))),
               ),
             )),
-          ) : h('div', { style: { fontSize: '12px', color: '#9aa3b2', padding: '10px 0' } }, '还没有画风预设。点「➕ 新增一套」开始。'),
+          ) : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', padding: '10px 0' } }, '还没有画风预设。点「➕ 新增一套」开始。'),
 
-          h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginTop: '14px', borderTop: '1px solid rgba(120,140,170,.2)', paddingTop: '12px', marginBottom: '6px' } }, '没选预设时用的默认值'),
+          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '14px', borderTop: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)', paddingTop: '12px', marginBottom: '6px' } }, '没选预设时用的默认值'),
           h('div', { style: S.row },
             h('span', { style: Object.assign({}, S.label, { minWidth: '86px' }) }, '默认画师串'),
             h('input', {
@@ -5000,7 +5328,7 @@ function versionsOf(jobId) {
       }
 
       function PromptPresetCard() {
-        const optStyle = { color: '#12161c', background: '#e9eef6' }
+        const optStyle = {}
         const library = Array.isArray(config.promptPresetLibrary) ? config.promptPresetLibrary : []
         const saved = Array.isArray(config.promptPresets) ? config.promptPresets : []
         const draftStorageKey = 'dsh-tavern-image-prompt-draft-v1'
@@ -5049,19 +5377,19 @@ function versionsOf(jobId) {
         const area = height => Object.assign({}, S.input, { width: '100%', minHeight: height, boxSizing: 'border-box', fontFamily: 'ui-monospace, Consolas, monospace', fontSize: '12px', lineHeight: '1.5', resize: 'vertical' })
         return h('div', { style: S.card },
           h('div', { style: { fontSize: '14px', fontWeight: 600, marginBottom: '5px' } }, '专业提示词预设'),
-          h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '9px' } }, '按后端使用标签、自然语言或混合格式；预设包含构图、光线、材质与风格指导。脸部一致性需要参考图，预设本身不保证跨图一致。'),
+          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '9px' } }, '按后端使用标签、自然语言或混合格式；预设包含构图、光线、材质与风格指导。脸部一致性需要参考图，预设本身不保证跨图一致。'),
           h('div', { style: S.row },
             h('label', { style: S.label }, '提示词格式'),
             h('select', { value: config.promptMode || 'auto', style: S.input, onChange: e => save({ promptMode: e.target.value }) },
               h('option', { value: 'auto', style: optStyle }, '自动'), h('option', { value: 'tags', style: optStyle }, '标签'), h('option', { value: 'natural', style: optStyle }, '自然语言'), h('option', { value: 'mixed', style: optStyle }, '混合')),
-            h('span', { style: { fontSize: '11px', color: '#9aa3b2' } }, '当前：' + (config.promptEffectiveFormat || 'mixed')),
+            h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, '当前：' + (config.promptEffectiveFormat || 'mixed')),
           ),
-          h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' } }, library.map(profile => h('button', { key: profile.id, style: Object.assign({}, buttonStyle, { borderColor: activeId === profile.id ? '#6aa8ff' : undefined }), onClick: () => save({ activePromptPreset: profile.id }) }, (activeId === profile.id ? '● ' : '○ ') + profile.name))),
+          h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' } }, library.map(profile => h('button', { key: profile.id, style: Object.assign({}, buttonStyle, { borderColor: activeId === profile.id ? 'var(--dsw-alias-brand-primary)' : undefined }), onClick: () => save({ activePromptPreset: profile.id }) }, (activeId === profile.id ? '● ' : '○ ') + profile.name))),
           h('div', { style: Object.assign({}, S.row, { marginTop: '7px' }) }, h('button', { style: buttonStyle, disabled: draft.length >= 60, onClick: addBlank }, '新建空白预设'), h('button', { style: buttonStyle, onClick: () => save({ activePromptPreset: '' }) }, '不使用预设')),
-          draft.map((p, i) => h('div', { key: p.id || i, style: { padding: '9px', marginTop: '8px', border: '1px solid rgba(120,140,170,.25)', borderRadius: '8px' } },
+          draft.map((p, i) => h('div', { key: p.id || i, style: { padding: '9px', marginTop: '8px', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 25%, transparent)', borderRadius: '8px' } },
             h('div', { style: S.row }, h('input', { type: 'radio', name: 'dsh-prompt-preset', checked: activeId === String(p.id), onChange: () => save({ activePromptPreset: String(p.id) }) }), h('input', { value: p.name || '', style: Object.assign({}, S.input, { flex: 1 }), onChange: e => edit(i, 'name', e.target.value) }), h('button', { style: buttonStyle, onClick: () => { const next = draft.filter((_, n) => n !== i); setDraft(next); save({ promptPresets: next, activePromptPreset: activeId === String(p.id) ? '' : activeId }) } }, '删除')),
-            h('div', { style: { fontSize: '11px', color: '#9aa3b2', margin: '5px 0 3px' } }, '正面指导'), h('textarea', { 'aria-label': '预设正面指导 ' + (p.name || i + 1), value: p.positive || '', style: area('60px'), onChange: e => edit(i, 'positive', e.target.value) }),
-            h('div', { style: { fontSize: '11px', color: '#9aa3b2', margin: '5px 0 3px' } }, '负面指导'), h('textarea', { 'aria-label': '预设负面指导 ' + (p.name || i + 1), value: p.negative || '', style: area('42px'), onChange: e => edit(i, 'negative', e.target.value) }),
+            h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', margin: '5px 0 3px' } }, '正面指导'), h('textarea', { 'aria-label': '预设正面指导 ' + (p.name || i + 1), value: p.positive || '', style: area('60px'), onChange: e => edit(i, 'positive', e.target.value) }),
+            h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', margin: '5px 0 3px' } }, '负面指导'), h('textarea', { 'aria-label': '预设负面指导 ' + (p.name || i + 1), value: p.negative || '', style: area('42px'), onChange: e => edit(i, 'negative', e.target.value) }),
           )),
           h('div', { style: Object.assign({}, S.row, { marginTop: '8px' }) },
             h('button', { style: buttonStyle, onClick: () => addCopy(active || library[1]) }, '复制当前预设'),
@@ -5073,31 +5401,23 @@ function versionsOf(jobId) {
             h('button', { style: buttonStyle, onClick: exportPresets }, '导出 JSON')),
           h('textarea', { value: importText, placeholder: '粘贴单个预设对象或 JSON 数组', style: Object.assign({}, area('48px'), { marginTop: '7px' }), onChange: e => setImportText(e.target.value) }),
           h('button', { style: Object.assign({}, buttonStyle, { marginTop: '5px' }), onClick: importPresets }, '导入 JSON'),
-          active ? h('div', { style: { marginTop: '8px', padding: '8px', background: 'rgba(255,255,255,.035)', borderRadius: '7px', fontSize: '12px' } },
-            h('div', { style: { color: '#9aa3b2' } }, '正面预览'), h('div', { style: { whiteSpace: 'pre-wrap' } }, config.promptPreviewPositive || active.positive || ''),
-            h('div', { style: { color: '#9aa3b2', marginTop: '5px' } }, '负面预览'), h('div', { style: { whiteSpace: 'pre-wrap' } }, config.promptPreviewNegative || active.negative || '')) : null,
-          h('div', { style: { borderTop: '1px solid rgba(120,140,170,.2)', marginTop: '10px', paddingTop: '9px' } },
+          active ? h('div', { style: { marginTop: '8px', padding: '8px', background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 4%, transparent)', borderRadius: '7px', fontSize: '12px' } },
+            h('div', { style: { color: 'var(--dsw-alias-label-tertiary)' } }, '正面预览'), h('div', { style: { whiteSpace: 'pre-wrap' } }, config.promptPreviewPositive || active.positive || ''),
+            h('div', { style: { color: 'var(--dsw-alias-label-tertiary)', marginTop: '5px' } }, '负面预览'), h('div', { style: { whiteSpace: 'pre-wrap' } }, config.promptPreviewNegative || active.negative || '')) : null,
+          h('div', { style: { borderTop: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)', marginTop: '10px', paddingTop: '9px' } },
             h('div', { style: { fontSize: '12px', marginBottom: '4px' } }, '手动提示词覆盖'),
             h('textarea', { value: manualPositive, placeholder: '附加到所有正面提示词', style: area('42px'), onChange: e => setManualPositive(e.target.value) }),
             h('textarea', { value: manualNegative, placeholder: '附加到所有负面提示词', style: Object.assign({}, area('38px'), { marginTop: '4px' }), onChange: e => setManualNegative(e.target.value) }),
             h('button', { style: Object.assign({}, buttonStyle, { marginTop: '5px' }), onClick: () => save({ promptManualPositive: manualPositive, promptManualNegative: manualNegative }) }, '保存手动覆盖')),
-          h('div', { style: { borderTop: '1px solid rgba(120,140,170,.2)', marginTop: '10px', paddingTop: '9px' } },
+          h('div', { style: { borderTop: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)', marginTop: '10px', paddingTop: '9px' } },
             h('label', { style: { display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12px' } }, h('input', { type: 'checkbox', checked: config.jpegOutput === true, onChange: e => save({ jpegOutput: e.target.checked }) }), '将 PNG 转为 JPEG（有损压缩）'),
             h('div', { style: S.row }, h('label', { style: S.label }, '质量 50–100'), h('input', { type: 'number', min: 50, max: 100, value: quality, style: Object.assign({}, S.input, { width: '75px' }), onChange: e => setQuality(e.target.value) }), h('label', { style: S.label }, '透明底色'), h('input', { type: 'color', value: background, onChange: e => setBackground(e.target.value) }), h('button', { style: buttonStyle, onClick: () => save({ jpegQuality: quality, jpegBackground: background }) }, '保存')),
-            h('div', { style: { fontSize: '11px', color: '#9aa3b2' } }, '仅转换 PNG；GIF/WebP 或转换失败时保留原图并显示提示。')),
-          message ? h('div', { style: { fontSize: '12px', marginTop: '7px', color: '#6aa8ff' } }, message) : null,
+            h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, '仅转换 PNG；GIF/WebP 或转换失败时保留原图并显示提示。')),
+          message ? h('div', { style: { fontSize: '12px', marginTop: '7px', color: 'var(--dsw-alias-brand-primary)' } }, message) : null,
         )
       }
 
       // ---- 工作流 ----
-      function flowTab() {
-        return h('div', null,
-          stylePresetCard(),
-          h(PromptPresetCard),
-          workflowCard(),
-        )
-      }
-
       function pluginUpdateTab() {
         const releaseMode = pluginUpdateLocal?.mode === 'release'
         const supported = releaseMode || pluginUpdateLocal?.supported === true
@@ -5157,53 +5477,72 @@ function versionsOf(jobId) {
         return h('div', null,
           h('div', { style: S.card },
             h('div', { style: { fontSize: '14px', fontWeight: 600, marginBottom: '8px' } }, '插件更新'),
-            h('div', { role: 'note', style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '8px' } }, releaseMode ? 'Release 更新：下载官方发布包并校验 SHA-256。' : 'Git 更新：仅对官方、干净的 master checkout 执行 fast-forward。'),
-            pluginUpdateLocal?.compatibility?.compatible === false ? h('div', { role: 'alert', style: { fontSize: '12px', color: '#f0b45c', marginBottom: '8px' } }, pluginUpdateLocal.compatibility.reason || '当前 Tavern 版本不兼容，请先更新 Tavern。') : null,
+            h('div', { role: 'note', style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } }, releaseMode ? 'Release 更新：下载官方发布包并校验 SHA-256。' : 'Git 更新：仅对官方、干净的 master checkout 执行 fast-forward。'),
+            pluginUpdateLocal?.compatibility?.compatible === false ? h('div', { role: 'alert', style: { fontSize: '12px', color: 'var(--dsw-alias-state-warning-primary)', marginBottom: '8px' } }, pluginUpdateLocal.compatibility.reason || '当前 Tavern 版本不兼容，请先更新 Tavern。') : null,
             h('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(120px, auto) 1fr', gap: '6px 12px', fontSize: '13px' } },
               h('span', { style: S.label }, '当前版本'), h('span', null, version(pluginUpdateLocal?.currentVersion)),
               h('span', { style: S.label }, '远端版本'), h('span', null, version(pluginUpdateCheck?.latestVersion)),
             ),
-            latestConfirmed ? h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginTop: '8px' } }, '当前已是最新版本。') : null,
-            pluginUpdateLocal?.supported === false && repositoryUrl ? h('a', { href: repositoryUrl.slice(0, -4), target: '_blank', rel: 'noopener noreferrer', style: { display: 'inline-block', marginTop: '8px', color: '#8bb8ff' } }, '打开插件 GitHub 页面手动下载') : null,
+            latestConfirmed ? h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '8px' } }, '当前已是最新版本。') : null,
+            pluginUpdateLocal?.supported === false && repositoryUrl ? h('a', { href: repositoryUrl.slice(0, -4), target: '_blank', rel: 'noopener noreferrer', style: { display: 'inline-block', marginTop: '8px', color: 'var(--dsw-alias-brand-primary)' } }, '打开插件 GitHub 页面手动下载') : null,
             h('div', { style: S.row },
               h('button', { style: buttonStyle, disabled: !canCheck || Boolean(pluginUpdatePending), onClick: () => { setPluginUpdateCheck(null); void checkPluginUpdate() } }, pluginUpdatePending === 'check' ? '正在检查…' : '检查更新'),
               h('button', { style: buttonStyle, disabled: !canUpdate || Boolean(pluginUpdatePending), onClick: applyPluginUpdate }, pluginUpdatePending === 'apply' ? '正在更新…' : '更新插件'),
               !pluginUpdateLocal && pluginUpdatePending !== 'local' ? h('button', { style: buttonStyle, disabled: Boolean(pluginUpdatePending), onClick: () => { pluginUpdateLocalAttempted.current = true; void loadPluginUpdateLocal() } }, '重试读取本地状态') : null,
             ),
-            h('div', { role: 'status', 'aria-live': 'polite', style: { minHeight: '18px', fontSize: '12px', color: restartNeeded || migrationNeeded ? '#f0b45c' : '#9aa3b2', marginTop: '8px' } },
+            h('div', { role: 'status', 'aria-live': 'polite', style: { minHeight: '18px', fontSize: '12px', color: restartNeeded || migrationNeeded ? 'var(--dsw-alias-state-warning-primary)' : 'var(--dsw-alias-label-tertiary)', marginTop: '8px' } },
               pluginUpdateNote || (pluginUpdatePending === 'local' ? '读取本地插件状态…' : ''),
             ),
-            migrationNeeded ? h('div', { role: 'note', style: { fontSize: '12px', color: '#f0b45c', marginTop: '8px', lineHeight: 1.55 } }, pluginUpdateLocal.directoryMigrationMessage) : null,
-            h('div', { style: { fontSize: '12px', color: '#9aa3b2', marginTop: '8px', lineHeight: 1.55 } }, releaseMode ? 'Release 更新使用发布 metadata 中的版本和 SHA-256 校验；只更新插件代码，更新后请完整重启 DSH。' : 'Git 更新仅允许官方干净 master checkout 快进；只更新插件代码，更新后请完整重启 DSH。'),
-            h('div', { style: { borderTop: '1px solid rgba(120,140,170,.2)', marginTop: '12px', paddingTop: '10px' } },
-              h('div', { style: { fontSize: '12px', color: '#dfe4ec', marginBottom: '6px' } }, '手动下载插件包'),
-              h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginBottom: '9px', lineHeight: 1.55 } }, '本机安装包包含当前本机代码（包括未发布测试改动）；GitHub ZIP 与备用下载是公开仓库 master 版本，不包含本机测试改动。若公开 ZIP 下载较慢，可试备用下载；它也由 GitHub codeload 提供。历史发布可选稳定版本。'),
+            migrationNeeded ? h('div', { role: 'note', style: { fontSize: '12px', color: 'var(--dsw-alias-state-warning-primary)', marginTop: '8px', lineHeight: 1.55 } }, pluginUpdateLocal.directoryMigrationMessage) : null,
+            h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '8px', lineHeight: 1.55 } }, releaseMode ? 'Release 更新使用发布 metadata 中的版本和 SHA-256 校验；只更新插件代码，更新后请完整重启 DSH。' : 'Git 更新仅允许官方干净 master checkout 快进；只更新插件代码，更新后请完整重启 DSH。'),
+            h('div', { style: { borderTop: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 20%, transparent)', marginTop: '12px', paddingTop: '10px' } },
+              h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-primary)', marginBottom: '6px' } }, '手动下载插件包'),
+              h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '9px', lineHeight: 1.55 } }, '本机安装包包含当前本机代码（包括未发布测试改动）；GitHub ZIP 与备用下载是公开仓库 master 版本，不包含本机测试改动。若公开 ZIP 下载较慢，可试备用下载；它也由 GitHub codeload 提供。历史发布可选稳定版本。'),
               h('div', { style: S.row },
                 h('button', { type: 'button', style: buttonStyle, disabled: !localDownloadPath, onClick: downloadLocalPackage }, '本机安装包'),
                 sourceUrl ? h('a', { href: sourceUrl, target: '_blank', rel: 'noopener noreferrer', style: linkStyle }, 'GitHub 源码ZIP') : null,
                 alternateUrl ? h('a', { href: alternateUrl, target: '_blank', rel: 'noopener noreferrer', style: linkStyle }, '备用下载') : null,
                 releasesUrl ? h('a', { href: releasesUrl, target: '_blank', rel: 'noopener noreferrer', style: linkStyle }, '历史发布') : null,
               ),
-              !localDownloadPath && !sourceUrl && !alternateUrl && !releasesUrl ? h('div', { role: 'status', style: { fontSize: '11px', color: '#f0b45c', marginTop: '6px' } }, '下载地址尚不可用，请刷新控制台状态后重试。') : null,
+              !localDownloadPath && !sourceUrl && !alternateUrl && !releasesUrl ? h('div', { role: 'status', style: { fontSize: '11px', color: 'var(--dsw-alias-state-warning-primary)', marginTop: '6px' } }, '下载地址尚不可用，请刷新控制台状态后重试。') : null,
             ),
           ),
         )
       }
 
-      const tabs = [['plan', '生图规划'], ['people', '人物库'], ['gallery', '历史图'], ['worldbook', '世界书'], ['flow', '画风'], ['plugin-update', '插件更新']]
-      return h('div', { style: Object.assign({}, S.surface, { padding: '4px 2px 20px', fontSize: '13px' }) },
-        h(SetupGuide),
-        head,
-        h(ManualCard),
+      const tabs = [['plan', '设置'], ['people', '人物库'], ['worldbook', '世界书'], ['gallery', '画廊']]
+      const section = text => h('div', { style: { fontSize: '14px', fontWeight: 600, margin: '18px 0 2px', color: 'var(--dsw-alias-label-primary)' } }, text)
+      return h('div', { className: 'dti-settings', style: Object.assign({}, S.surface, { padding: '4px 2px 20px', fontSize: '13px' }) },
+        h('style', null, SETTINGS_CSS),
+        // 连接状态就在「渠道」里的测试按钮旁边，顶部不再单放一个状态框；这里只留保存等操作的提示。
+        note ? h('div', { role: 'status', style: { fontSize: '12px', margin: '0 0 8px', color: 'var(--dsw-alias-brand-primary)' } }, note) : null,
+        // 总开关放在最上面：关掉后不再自动或手动配图，正文里不显示配图按钮，已有插图照常显示。
+        h('label', { style: Object.assign({}, S.card, { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', marginTop: 0, cursor: 'pointer' }) },
+          h('span', null,
+            h('span', { style: { display: 'block', fontSize: '14px', fontWeight: 600 } }, '启用配图'),
+            h('span', { style: { display: 'block', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '2px' } },
+              config.imageEnabled === false ? '已关闭：不再自动或手动配图，正文里不显示配图按钮；已有插图照常显示' : '为剧情自动或手动配图；关掉后正文里不显示配图按钮，已有插图照常显示')),
+          h('input', { type: 'checkbox', role: 'switch', className: 'dti-switch', 'aria-label': '启用配图', checked: config.imageEnabled !== false, onChange: e => save({ imageEnabled: e.target.checked }) })),
         taskPanel(),
         h('div', { style: S.row }, tabs.map(([key, label]) => h('button', { key, style: S.tab(tab === key), onClick: () => setTab(key) }, label))),
-        tab === 'plan' ? planTab() : null,
+        // 设置页按第一次配置的顺序排：先接渠道，再定每轮怎么配图，最后是画风。
+        tab === 'plan' ? h('div', null,
+          section('渠道'),
+          ComfyBackendCard(),
+          imageBackend === 'comfyui' ? workflowCard() : null,
+          section('配图规则'),
+          planTab(),
+          section('画风'),
+          stylePresetCard(),
+          h(PromptPresetCard),
+        ) : null,
         tab === 'people' ? peopleTab() : null,
-        tab === 'flow' ? flowTab() : null,
         tab === 'gallery' ? galleryTab() : null,
         tab === 'worldbook' ? worldbookTab() : null,
-        tab === 'plugin-update' ? pluginUpdateTab() : null,
-        h('div', { style: { fontSize: '11px', color: '#9aa3b2', marginTop: '14px' } }, '人物与服装修改后请点「保存人物库」。'),
+        tab === 'people' ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '14px' } }, '人物与服装修改后请点「保存人物库」。') : null,
+        h('details', { style: { marginTop: '22px', fontSize: '12px' }, onToggle: event => setUpdateOpen(event.currentTarget.open) },
+          h('summary', { style: { cursor: 'pointer', color: 'var(--dsw-alias-label-tertiary)' } }, '插件版本与更新' + (pluginUpdateLocal?.currentVersion ? '（当前 ' + pluginUpdateLocal.currentVersion + '）' : '')),
+          updateOpen ? pluginUpdateTab() : null),
         // 注意：openWorkflow 定义在 workflow 标签页函数内部，这里跨作用域调用会 ReferenceError。
         // 保存后只做本层能做的收尾：关掉编辑器、清掉旧详情，让用户重新点开时读到新数据。
         wfGraphFile ? h(WorkflowGraphEditor, {
@@ -5218,85 +5557,6 @@ function versionsOf(jobId) {
         }) : null,
       )
     }
-    // ─────────────────────────────────────────────────────────────
-    // 控制台浮层：把整套设置界面搬到「主窗口」显示
-    // DSH 的「设置」是独立渲染上下文，访问 127.0.0.1 会被拒（fetch/XHR 都失败），
-    // 所以设置页里的面板读不到数据；主窗口正常，这里提供一个等效入口。
-    // ─────────────────────────────────────────────────────────────
-    function ConsoleOverlay() {
-      const [open, setOpen] = React.useState(false)
-      React.useEffect(() => {
-        const onOpen = () => setOpen(true)
-        const onKey = event => { if (event.key === 'Escape') setOpen(false) }
-        try {
-          window.addEventListener('dsh-tavern-image:open-console', onOpen)
-          window.addEventListener('keydown', onKey)
-        } catch {}
-        return () => {
-          try {
-            window.removeEventListener('dsh-tavern-image:open-console', onOpen)
-            window.removeEventListener('keydown', onKey)
-          } catch {}
-        }
-      }, [])
-      // 收起时不渲染任何东西：入口在左侧栏底部（见 ConsoleLauncher），
-      // 不再在右下角浮一个常驻按钮 —— 那个位置会盖住正文和面板。
-      if (!open) return null
-      return h('div', {
-        style: {
-          position: 'fixed', inset: 0, zIndex: 2147483100,
-          background: 'rgba(6,9,14,.86)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', padding: '18px',
-        },
-        onClick: event => { if (event.target === event.currentTarget) setOpen(false) },
-      }, h('div', {
-        style: {
-          width: 'min(1180px, 96vw)', height: 'min(86vh, 900px)', overflow: 'auto',
-          background: '#0f131a', color: '#e8edf5', border: '1px solid rgba(255,255,255,.18)',
-          borderRadius: '14px', padding: '16px',
-        },
-      },
-        h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' } },
-          h('div', { style: { fontSize: '15px', fontWeight: 600 } }, '🎨 本地生图控制台'),
-          h('button', {
-            style: { background: 'transparent', color: '#dfe4ec', border: '1px solid rgba(255,255,255,.2)', borderRadius: '8px', padding: '4px 12px', cursor: 'pointer' },
-            onClick: () => setOpen(false),
-          }, '关闭 ✕'),
-        ),
-        h(SettingsPanel),
-      ))
-    }
-
-    /**
-     * 侧栏底部的入口按钮 —— 和「卡片更新器」「错题库」排在一起（sidebar.footer.action，
-     * 即"设置"按钮旁边的动作区）。窄栏（56px 轨道，wide=false）时只留图标。
-     */
-    function ConsoleLauncher(props) {
-      const wide = props?.wide !== false
-      const [hover, setHover] = React.useState(false)
-      const open = () => { try { window.dispatchEvent(new CustomEvent('dsh-tavern-image:open-console')) } catch {} }
-      return h('button', {
-        type: 'button',
-        title: '本地生图控制台（人物库 / 历史图 / 世界书 / 画风）',
-        'aria-label': '本地生图',
-        onClick: open,
-        onMouseEnter: () => setHover(true),
-        onMouseLeave: () => setHover(false),
-        style: {
-          display: 'flex', alignItems: 'center', gap: '8px',
-          justifyContent: wide ? 'flex-start' : 'center',
-          width: '100%', margin: '2px 0',
-          background: hover ? 'rgba(255,255,255,.07)' : 'transparent',
-          border: 'none', color: 'inherit', cursor: 'pointer',
-          padding: wide ? '8px 10px' : '8px 0', borderRadius: '8px',
-          fontSize: '13px', textAlign: 'left',
-        },
-      },
-        h('span', { style: { fontSize: '15px', lineHeight: 1 } }, '🎨'),
-        wide ? h('span', null, '本地生图') : null,
-      )
-    }
-
     function apply(ctx) {
       // 诊断：证明 apply 被调到，并看清 ctx 上到底有什么
       try {
@@ -5317,41 +5577,26 @@ function versionsOf(jobId) {
       try {
         // 默认：标记通道按配置走；规划通道读不到配置就先不开（免得每轮白跑一次模型）
         // 默认先按「开」处理：渲染器可能在配置读回来之前就被调用，第一次太保守会整条消息都不接管
-        const settings = { autoImageGen: true, plannerEnabled: true, smartImageSelection: true }
+        const settings = { autoImageGen: true, plannerEnabled: true, smartImageSelection: true, imageEnabled: true }
+        // 配图总开关变化时重新登记 illustrator（关掉时不给 draw，Tavern 就不显示配图按钮）。
+        let refreshIllustrator = null
+        const applyImageEnabled = value => {
+          const next = value !== false
+          if (next === settings.imageEnabled) return
+          settings.imageEnabled = next
+          refreshIllustrator?.()
+        }
+        window.addEventListener('dsh-tavern-image:config', event => applyImageEnabled(event?.detail?.imageEnabled))
         jsonFetch(`${BASE}/state`).then(state => {
           if (state?.config) {
             settings.autoImageGen = state.config.autoImageGen !== false
             settings.plannerEnabled = state.config.plannerEnabled !== false
             settings.smartImageSelection = state.config.smartImageSelection !== false
+            applyImageEnabled(state.config.imageEnabled)
             // 正文插图统一宽度：每次启动都从 /state 读回来，所以刷新 / 重启之后依然生效。
             applyImageWidth(state.config.imageDisplayWidth)
           }
         }).catch(() => { /* 拿不到配置就安静退化成只在有标记时出图 */ })
-
-        // ★ 控制台浮层（主窗口，网络可用）
-        try {
-          ctx.slots?.inject?.('shell.overlay', () => ctx.slots.register({
-            name: 'shell.overlay',
-            id: 'dsh-tavern-image-console',
-            order: 95,
-          }, ConsoleOverlay))
-          reportHost('seat-registered', { seat: 'shell.overlay.console' })
-        } catch (error) {
-          reportHost('seat-failed', { seat: 'shell.overlay.console', error: String(error?.message ?? error).slice(0, 120) })
-        }
-
-        // ★ 侧栏底部入口：和「卡片更新器」「错题库」并排（设置按钮旁边那一排）
-        try {
-          ctx.slots?.inject?.('sidebar.footer.action', () => ctx.slots.register({
-            name: 'sidebar.footer.action',
-            id: 'dsh-tavern-image-launcher',
-            order: 48,
-            label: '本地生图',
-          }, ConsoleLauncher))
-          reportHost('seat-registered', { seat: 'sidebar.footer.action' })
-        } catch (error) {
-          reportHost('seat-failed', { seat: 'sidebar.footer.action', error: String(error?.message ?? error).slice(0, 120) })
-        }
 
         // 全屏看图浮层
         try {
@@ -5421,21 +5666,22 @@ function versionsOf(jobId) {
             id: 'dsh-tavern-image',
             order: 30,
             inject: (sessionId) => ({ sessionId }),
-          }, ImageActionButton))
+            // Tavern 第 5 版有自己的配图按钮（由本插件出图），这颗就不再显示。
+          }, props => typeof tavernUiService?.registerIllustrator === 'function' ? null : h(ImageActionButton, props)))
           reportHost('seat-registered', { seat: 'assistant-actions', injectReturned: ok !== undefined })
         } catch (error) {
           reportHost('seat-failed', { seat: 'assistant-actions', error: String(error?.message ?? error) })
           console.warn('[dsh-tavern-image] 生图按钮未注册:', error?.message)
         }
 
-        // 设置 → 本地生图（与「错题库」「卡片更新器」同一层）
+        // 设置 → 配图：插件唯一的配置入口（不再有侧栏按钮和控制台弹窗）
         try {
           reportHost('seat-registered', { seat: 'settings.section' })
           ctx.slots?.inject?.('settings.section', () => ctx.slots.register({
             name: 'settings.section',
             id: 'dsh-tavern-image',
             order: 47,
-            label: () => '本地生图',
+            label: () => '配图',
           }, SettingsPanel))
         } catch (error) {
           console.warn('[dsh-tavern-image] 设置页面未注册:', error?.message)
@@ -5450,6 +5696,7 @@ function versionsOf(jobId) {
         //   · 按钮 —— tavernUi.registerMessageAction
         ctx.inject?.(['tavernUi'], owner => {
           const ui = owner.tavernUi
+          tavernUiService = ui || null
           if (!ui || ui.apiVersion < 1) {
             reportHost('tavernui-missing', { got: Boolean(ui) })
             try { console.warn('[dsh-tavern-image] 当前 Tavern 没有 tavernUi 接口，生图按钮不可用') } catch {}
@@ -5531,7 +5778,7 @@ function versionsOf(jobId) {
             } catch (error) { reportHost('character-history-panel-failed', { error: String(error?.message ?? error).slice(0, 160) }) }
           }
           try {
-            const runMessageDraw = createMessageDrawRunner(async context => {
+            const drawTurn = async context => {
               const r = await jsonFetch(BASE + '/attach-turn', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
@@ -5541,6 +5788,10 @@ function versionsOf(jobId) {
                 gameId: String(context && context.gameId || '').slice(0, 12), turn: context && context.turn,
                 ok: Boolean(r && r.ok), attached: r && r.attached, error: String(r && r.error || '').slice(0, 160),
               })
+              return r
+            }
+            const runMessageDraw = createMessageDrawRunner(async context => {
+              const r = await drawTurn(context)
               if (typeof showToast === 'function') {
                 if (r && r.ok && r.attached) showToast('已提交 ' + r.attached + ' 张，出图后自动插进正文')
                 else if (r && r.ok && r.skipped) showToast('本轮自动跳过配图：' + (r.reason || '没有合适的画面'))
@@ -5548,13 +5799,51 @@ function versionsOf(jobId) {
               }
               return r
             }, () => { if (typeof showToast === 'function') showToast('正在提交，等待本轮正文数据…') })
-            const off = ui.registerMessageAction({
-              id: 'dsh-tavern-image-draw',
-              label: '🎨 生图',
-              when: context => Boolean(context && context.gameId) && Number(context.turn) > 0,
-              run: runMessageDraw,
-            })
-            owner.effect?.(() => off, 'dsh-tavern-image: message action')
+            // Tavern 第 5 版起提供配图按钮和插图卡：本插件只负责出图，界面交给 Tavern。
+            const illustrates = typeof ui.registerIllustrator === 'function'
+            if (illustrates) {
+              const mediaAction = (operation, context, extra = {}) => {
+                const data = context.item && context.item.data || {}
+                return jsonFetch(BASE + '/media-action', {
+                  method: 'POST', headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ operation, gameId: context.gameId, turn: context.turn, textVersion: context.textVersion,
+                    mediaId: context.item.id, jobId: String(data.replacement && data.replacement.jobId || data.jobId || ''), ...extra }),
+                }).then(result => { if (!result || !result.ok) throw new Error(result && result.error || '请求未确认'); return result })
+              }
+              // 进度和结果由 Tavern 显示在这一轮正文里：成功不提示，跳过返回说明，失败抛错。
+              const draw = createMessageDrawRunner(async context => {
+                const r = await drawTurn({ gameId: context.gameId, turn: context.turn })
+                if (r && r.ok && r.attached) return {}
+                if (r && r.ok && r.skipped) return { notice: '本轮跳过配图：' + (r.reason || '没有合适的画面') }
+                throw new Error('没出画面：' + ((r && r.error) || '规划没有产出画面'))
+              })
+              let offIllustrator = null
+              refreshIllustrator = () => {
+                try { offIllustrator?.() } catch {}
+                offIllustrator = ui.registerIllustrator({
+                  kinds: ['dsh-tavern-image/image', 'dsh-tavern-comfy/image'],
+                  ...(settings.imageEnabled ? { draw } : {}),
+                  redraw: context => mediaAction('redraw', context),
+                  revise: context => mediaAction('revise', context, { instruction: context.instruction || '' }),
+                  editPrompt: context => mediaAction('redraw', context, { prompt: context.prompt }),
+                  cancel: context => mediaAction('cancel', context),
+                  // 图上的「重试」「查询结果」：由宿主侧按任务状态写进 item.actions。
+                  action: context => context.actionId === 'force-redraw'
+                    ? mediaAction('redraw', context, { confirmUncertain: true })
+                    : mediaAction(context.actionId, context),
+                })
+              }
+              refreshIllustrator()
+              owner.effect?.(() => () => { refreshIllustrator = null; offIllustrator?.() }, 'dsh-tavern-image: illustrator')
+            } else {
+              const off = ui.registerMessageAction({
+                id: 'dsh-tavern-image-draw',
+                label: '🎨 生图',
+                when: context => Boolean(context && context.gameId) && Number(context.turn) > 0,
+                run: runMessageDraw,
+              })
+              owner.effect?.(() => off, 'dsh-tavern-image: message action')
+            }
 
           // 正文里的 image###英文Tag### 标记：就地画一张图。
           // 自动配图走的是宿主侧 tavern.attach（Tavern 自己渲染、跟正文版本绑定）；
@@ -5584,8 +5873,8 @@ function versionsOf(jobId) {
             owner.effect?.(() => offMarker, 'dsh-tavern-image: text marker')
             reportHost('tavernui-marker-registered', { ok: true })
 
-          // 给自己的媒体类型定显示方式：大图 + 点开放大 + 右键/长按改提示词重画
-          for (const mediaKind of ['dsh-tavern-image/image', 'dsh-tavern-comfy/image']) {
+          // 给自己的媒体类型定显示方式：大图 + 点开放大 + 右键/长按改提示词重画（Tavern 有插图卡时由它显示）
+          for (const mediaKind of illustrates ? [] : ['dsh-tavern-image/image', 'dsh-tavern-comfy/image']) {
             try {
               const offMedia = ui.registerMediaRenderer(mediaKind, args => h(OfficialImage, {
                 item: args && args.item, gameId: args && args.gameId, turn: args && args.turn,

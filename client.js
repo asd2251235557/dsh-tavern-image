@@ -5637,9 +5637,6 @@ function versionsOf(jobId) {
         tab === 'gallery' ? galleryTab() : null,
         tab === 'worldbook' ? worldbookTab() : null,
         tab === 'people' ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '14px' } }, '人物与服装修改后请点「保存人物库」。') : null,
-        h('details', { style: { marginTop: '22px', fontSize: '12px' }, onToggle: event => setUpdateOpen(event.currentTarget.open) },
-          h('summary', { style: { cursor: 'pointer', color: 'var(--dsw-alias-label-tertiary)' } }, '插件版本与更新' + (pluginUpdateLocal?.currentVersion ? '（当前 ' + pluginUpdateLocal.currentVersion + '）' : '')),
-          updateOpen ? pluginUpdateTab() : null),
         // 注意：openWorkflow 定义在 workflow 标签页函数内部，这里跨作用域调用会 ReferenceError。
         // 保存后只做本层能做的收尾：关掉编辑器、清掉旧详情，让用户重新点开时读到新数据。
         wfGraphFile ? h(WorkflowGraphEditor, {

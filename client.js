@@ -856,7 +856,7 @@ let openImageOverlay = null
     function openEditorFor(jobId, title, mediaContext) {
       try {
         if (!jobId || typeof openPromptEditor !== 'function') return
-        openPromptEditor({ open: true, jobId: String(jobId), prompt: '', negative: '', instruction: '', note: '正在读取提示词…', busy: '', submitted: false, uncertain: false, mediaContext: validMediaContext(mediaContext) ? mediaContext : null, channelId: '' })
+        openPromptEditor({ open: true, jobId: String(jobId), prompt: '', negative: '', artist: '', backend: '', instruction: '', note: '正在读取提示词…', busy: '', submitted: false, uncertain: false, mediaContext: validMediaContext(mediaContext) ? mediaContext : null, channelId: '' })
         jsonFetch(BASE + '/job-detail?id=' + encodeURIComponent(String(jobId)), { cache: 'no-store' })
           .then(r => {
             if (!r?.ok || !r.job) { openPromptEditor({ note: '读不到提示词：' + (r?.error || '') }); return }
@@ -870,6 +870,8 @@ let openImageOverlay = null
               note: blocksText ? '场景与角色块一起显示；改完重画会按角色分区重新发送' : '',
               rawPrompt: String(r.job.rawPrompt || ''),
               finalPrompt: String(r.job.prompt || ''),
+              artist: String(r.job.artist || ''),
+              backend: String(r.job.backend || ''),
             })
           })
           .catch(error => openPromptEditor({ note: '读取失败：' + (error?.message ?? error) }))
@@ -1164,7 +1166,7 @@ function versionsOf(jobId) {
      * 长按 / 右键图片 → 打开编辑器：看提示词、改、让后台改、用新提示词重画。
      */
     function PromptEditor() {
-      const [view, setView] = React.useState({ open: false, jobId: '', prompt: '', negative: '', instruction: '', note: '', busy: '', loading: false })
+      const [view, setView] = React.useState({ open: false, jobId: '', prompt: '', negative: '', artist: '', backend: '', instruction: '', note: '', busy: '', loading: false })
       openPromptEditor = (next) => setView(cur => Object.assign({}, cur, next))
       useEffect(() => {
         if (!view.open || !view.mediaContext) return undefined
@@ -1272,7 +1274,15 @@ function versionsOf(jobId) {
           React.createElement('button', { type: 'button', onClick: close, style: { padding: '5px 14px', fontSize: '13px', borderRadius: '8px', border: '1px solid rgba(160,180,210,.5)', background: 'transparent', color: '#dbe3ee', cursor: 'pointer' } }, '关闭'),
         ),
         React.createElement('img', { src: BASE + '/jobs?id=' + encodeURIComponent(view.jobId) + '&image=1', style: { display: 'block', maxWidth: '260px', borderRadius: '10px', margin: '0 auto 16px', background: '#1a1d24' } }),
-        React.createElement('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '6px' } }, '正向提示词（可直接改，然后重画）'),
+        view.backend === 'novelai' && String(view.artist || '').trim() ? React.createElement(React.Fragment, null,
+          React.createElement('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '6px' } }, '画风 / 基础串（只读，重画时自动带上）'),
+          React.createElement('textarea', {
+            value: view.artist,
+            readOnly: true,
+            style: Object.assign({}, area, { minHeight: '52px', opacity: 0.75 }),
+          })
+        ) : null,
+        React.createElement('div', { style: { fontSize: '12px', color: '#9aa3b2', marginBottom: '6px' } }, '正向提示词（场景 + 角色块，可直接改，然后重画）'),
         React.createElement('textarea', {
           value: view.prompt,
           style: area,
